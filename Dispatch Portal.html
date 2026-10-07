@@ -187,6 +187,11 @@ tr.total td{font-weight:700;border-top:2px solid var(--ink);background:var(--sur
   .toolbar input[type=search]{max-width:none;margin-left:0;flex:1 1 100%}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.amt{max-width:130px;margin-left:auto;text-align:right}
+.addline{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.addline select{flex:1;min-width:200px}
+.invprev{display:flex;align-items:baseline;gap:12px;justify-content:flex-end;flex-wrap:wrap;border-top:2px solid var(--ink);padding-top:8px}
+.invprev b{font-size:1.25rem;font-variant-numeric:tabular-nums}
 </style>
 
 <div id="root"></div>
@@ -426,7 +431,7 @@ function invStatus(inv){if(inv.status==='Sent'&&inv.due<TODAY)return 'Overdue';r
 var ROLES={
   admin:{label:'Admin',pages:['overview','loads','drivers','driverov','customers','invoices','payroll','team','settings']},
   accountant:{label:'Accountant',pages:['overview','loads','drivers','driverov','customers','invoices','payroll','team','settings']},
-  dispatcher:{label:'Dispatcher',pages:['overview','myreport','loads','invoices','drivers','customers']}
+  dispatcher:{label:'Dispatcher',pages:['overview','myreport','loads','invoices','drivers','driverov','customers']}
 };
 var LABELS={overview:'Overview',myreport:'My report',loads:'Loads',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',team:'Team',settings:'Settings'};
 function canSetPw(kind){
@@ -611,7 +616,7 @@ function render(){
 function pageHtml(){
   switch(ui.page){
     case 'overview':return pOverview();
-    case 'driverov':return (session.role==='admin'||session.role==='accountant')?pDriverOv():'';
+    case 'driverov':return pDriverOv();
     case 'myreport':return session.role==='dispatcher'?pMyReport():'';
     case 'loads':return pLoads();
     case 'drivers':return pDrivers();
@@ -748,33 +753,36 @@ function driverStats(dr,r){
     rev:sumBy(done,function(l){return l.rate;}),fees:sumBy(done,loadFee)};
 }
 function pDriverOv(){
+  var mine=session.role==='dispatcher',me=getEmp(session.empId);
   var r=rangeOf(ui.drvPeriod,ui.drvDate,ui.drvMonth);
   var picker=r.p==='Week'?dateInput('drvDate','',ui.drvDate,'date','aria-label="Any day in the week"'):dateInput('drvMonth','',ui.drvMonth,'month','aria-label="Month"');
   var controls='<div class="chips">'+['Week','Month'].map(function(p){return '<button class="chip" type="button" data-action="drv-period" data-p="'+p+'" aria-pressed="'+(ui.drvPeriod===p)+'">'+p+'</button>';}).join('')+'</div><div style="width:200px">'+picker+'</div>';
-  var list=db.drivers.map(function(d){return driverStats(d,r);}).sort(function(a,b){return b.fees-a.fees||b.n-a.n;});
+  var drvs=db.drivers.filter(function(d){return !mine||d.dispatcherId===session.empId;});
+  var list=drvs.map(function(d){return driverStats(d,r);}).sort(function(a,b){return b.fees-a.fees||b.n-a.n;});
   var t={n:0,deliv:0,loaded:0,dead:0,rev:0,fees:0};
   var rows=list.map(function(s){
     t.n+=s.n;t.deliv+=s.deliv;t.loaded+=s.loaded;t.dead+=s.dead;t.rev+=s.rev;t.fees+=s.fees;
     var d=s.dr;
     return '<tr'+(s.n?'':' class="quiet"')+'><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier)+'</span></div></td>'+
-      '<td>'+esc(d.dispatcherId?nm(getEmp(d.dispatcherId)):'—')+'</td>'+
+      (mine?'':'<td>'+esc(d.dispatcherId?nm(getEmp(d.dispatcherId)):'—')+'</td>')+
       '<td class="num">'+s.n+'</td><td class="num">'+s.deliv+'</td><td class="num">'+NUM.format(s.loaded)+'</td><td class="num">'+NUM.format(s.dead)+'</td><td class="num"><b>'+NUM.format(s.loaded+s.dead)+'</b></td>'+
       '<td class="num">'+money(s.rev)+'</td><td class="num">'+money(s.fees)+'</td>'+
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="driver-detail" data-id="'+d.id+'">Loads</button></div></td></tr>';}).join('');
   var active=list.filter(function(s){return s.n>0;}).length;
-  return head('Driver overview',r.label,controls)+
+  return head('Driver overview',r.label+(mine&&me?' · '+me.name:''),controls)+
   '<div class="stats">'+
-    statTile('Active drivers',String(active),'of '+db.drivers.length+' with a load in this '+r.p.toLowerCase())+
+    statTile('Active drivers',String(active),'of '+drvs.length+(mine?' assigned to you':'')+' with a load in this '+r.p.toLowerCase())+
     statTile('Loads',String(t.n),plural(t.deliv,'load')+' delivered')+
     statTile('Total miles',NUM.format(t.loaded+t.dead),NUM.format(t.dead)+' deadhead miles')+
     statTile('Dispatch fees',money(r2(t.fees)),'on '+money(r2(t.rev))+' load revenue')+
   '</div>'+
-  '<section class="panel"><header><div><h2>Each driver</h2><div class="muted small">Miles count loads picked up or delivered in the period. Revenue and fees count loads delivered in the period.</div></div></header>'+
-    (rows?'<div class="tablewrap"><table class="tight" style="min-width:860px"><thead><tr><th>Driver</th><th>Dispatcher</th><th class="num">Loads</th><th class="num">Delivered</th><th class="num">Loaded miles</th><th class="num">Deadhead miles</th><th class="num">Total miles</th><th class="num">Load revenue</th><th class="num">Dispatch fees</th><th></th></tr></thead><tbody>'+rows+
-    '<tr class="total"><td>Total</td><td></td><td class="num">'+t.n+'</td><td class="num">'+t.deliv+'</td><td class="num">'+NUM.format(t.loaded)+'</td><td class="num">'+NUM.format(t.dead)+'</td><td class="num">'+NUM.format(t.loaded+t.dead)+'</td><td class="num">'+money(r2(t.rev))+'</td><td class="num">'+money(r2(t.fees))+'</td><td></td></tr></tbody></table></div>':'<div class="empty">No drivers yet. Add drivers on the Drivers page.</div>')+'</section>';
+  '<section class="panel"><header><div><h2>'+(mine?'My drivers':'Each driver')+'</h2><div class="muted small">'+(mine?'Drivers assigned to you as their dispatcher. ':'')+'Miles count loads picked up or delivered in the period. Revenue and fees count loads delivered in the period.</div></div></header>'+
+    (rows?'<div class="tablewrap"><table class="tight" style="min-width:'+(mine?780:860)+'px"><thead><tr><th>Driver</th>'+(mine?'':'<th>Dispatcher</th>')+'<th class="num">Loads</th><th class="num">Delivered</th><th class="num">Loaded miles</th><th class="num">Deadhead miles</th><th class="num">Total miles</th><th class="num">Load revenue</th><th class="num">Dispatch fees</th><th></th></tr></thead><tbody>'+rows+
+    '<tr class="total"><td>Total</td>'+(mine?'':'<td></td>')+'<td class="num">'+t.n+'</td><td class="num">'+t.deliv+'</td><td class="num">'+NUM.format(t.loaded)+'</td><td class="num">'+NUM.format(t.dead)+'</td><td class="num">'+NUM.format(t.loaded+t.dead)+'</td><td class="num">'+money(r2(t.rev))+'</td><td class="num">'+money(r2(t.fees))+'</td><td></td></tr></tbody></table></div>':'<div class="empty">'+(mine?'No drivers are assigned to you yet. A driver appears here once you are chosen as their dispatcher on the Drivers page.':'No drivers yet. Add drivers on the Drivers page.')+'</div>')+'</section>';
 }
 function driverDetail(id){
   var d=getDrv(id);if(!d)return;
+  if(session.role==='dispatcher'&&d.dispatcherId!==session.empId)return;
   var r=rangeOf(ui.drvPeriod,ui.drvDate,ui.drvMonth),s=driverStats(d,r);
   var rows=s.act.slice().sort(function(a,b){return String(b.pickup).localeCompare(String(a.pickup));}).map(function(l){
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">'+esc(nm(getCust(l.customerId)))+'</span></div></td><td>'+fmtD(l.pickup)+'<div class="muted small">to '+fmtD(l.delivery)+'</div></td><td class="num">'+NUM.format(l.miles)+(l.deadhead?'<div class="muted small">+'+NUM.format(l.deadhead)+' deadhead</div>':'')+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(loadFee(l))+'</td><td>'+pill(l.status)+'</td></tr>';}).join('');
@@ -1102,9 +1110,11 @@ function invoiceDoc(inv){
     '<div><b>To</b><span style="font-weight:600">'+esc(nm(d,'carrier'))+'</span><span class="muted small">Driver '+esc(nm(d))+'</span><span class="muted small">'+esc([d?d.mc:'',d?d.phone:'',d?d.email:''].filter(Boolean).join(' · '))+'</span></div>'+
     '<div><b>Issued</b><span>'+fmtD(inv.issued)+'</span><b style="margin-top:6px">Due</b><span>'+fmtD(inv.due)+(net>=0?' ('+(net===0?'on receipt':'Net '+net)+')':'')+'</span></div></div>'+
     '<div class="tablewrap"><table><thead><tr><th>Load</th><th>Route</th><th>Delivered</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Fee</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
-    ls.map(function(l){var f=invFee(inv,l);return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">Broker: '+esc(nm(getCust(l.customerId)))+'</span></div></td><td>'+fmtD(l.delivery)+'</td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+(d?d.feePct+'%':'')+'</td><td class="num">'+money(f)+'</td></tr>';}).join('')+
+    ls.map(function(l){var f=invFee(inv,l);return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">Broker: '+esc(nm(getCust(l.customerId)))+'</span></div></td><td>'+fmtD(l.delivery)+'</td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+(d&&Math.abs(f-loadFee(l))<0.005?d.feePct+'%':'—')+'</td><td class="num">'+money(f)+'</td></tr>';}).join('')+
     '</tbody></table></div>'+
+    (invAdj(inv)?'<div class="totals" style="margin-bottom:0"><div><span>'+esc(invAdj(inv).label)+'</span><span>'+money(invAdj(inv).amount)+'</span></div></div>':'')+
     '<div class="totals"><div><span>Loads</span><span>'+ls.length+'</span></div><div><span>Miles</span><span>'+NUM.format(miles)+'</span></div><div><span>Load rates (for reference)</span><span>'+money(rate)+'</span></div><div class="grand"><span>Dispatch fee due</span><span>'+money(inv.total)+'</span></div></div>'+
+    (inv.note?'<div class="foot" style="white-space:pre-wrap">'+esc(inv.note)+'</div>':'')+
     '<div class="foot">Issued by '+esc(s.company)+' to '+esc(nm(d,'carrier'))+'\n'+esc(s.payInstr)+'</div></div>';
 }
 function invoiceText(inv){
@@ -1112,6 +1122,8 @@ function invoiceText(inv){
   var ls=inv.loadIds.map(getLoad).filter(Boolean);
   var t=['DISPATCH FEE INVOICE '+inv.no,'','From: '+s.company,'To: '+nm(d,'carrier')+' ('+(d?d.mc:'')+'), driver '+nm(d),'Issued: '+fmtD(inv.issued),'Due: '+fmtD(inv.due),'','LOADS'];
   ls.forEach(function(l){t.push(l.ref+' | '+l.origin+' to '+l.dest+' | delivered '+fmtD(l.delivery)+' | load rate '+money(l.rate)+' | dispatch fee '+(d?d.feePct+'% = ':'')+money(invFee(inv,l)));});
+  if(invAdj(inv))t.push(invAdj(inv).label+': '+money(invAdj(inv).amount));
+  if(inv.note)t.push('','Note: '+inv.note);
   t.push('','TOTAL DISPATCH FEE DUE: '+money(inv.total),'',s.payInstr,'Issued by '+s.company);
   return t.join('\n');
 }
@@ -1120,19 +1132,68 @@ function mailBody(inv){
   var d=getDrv(inv.driverId),s=db.settings;
   return 'Hello '+(d?d.name:'')+',\n\nHere is your dispatch fee invoice. The amount due is '+money(inv.total)+' by '+fmtD(inv.due)+'.\n\n'+invoiceText(inv)+'\n\nThank you,\n'+s.company+(s.phone?'\n'+s.phone:'');
 }
+function invAdj(inv){return inv.adj&&Number(inv.adj.amount)?{label:inv.adj.label||'Adjustment',amount:Number(inv.adj.amount)}:null;}
+function invTotal(inv){
+  var t=0;inv.loadIds.forEach(function(id){var l=getLoad(id);if(l)t+=invFee(inv,l);});
+  var a=invAdj(inv);if(a)t+=a.amount;
+  return r2(t);
+}
 function viewInvoice(id){
   var inv=getInv(id);if(!inv)return;
   var d=getDrv(inv.driverId),canEdit=can('invoice');
-  var dates=canEdit?'<form class="form panelish" data-form="invdates"><input type="hidden" name="id" value="'+esc(inv.id)+'">'+
-    field('Invoice number','no',inv.no,{required:true,full:true})+field('Issue date','issued',inv.issued,{type:'date',required:true})+field('Due date','due',inv.due,{type:'date',required:true})+
-    '<div class="formfoot" style="padding-top:0"><button class="btn sm" type="submit">Save invoice details</button></div></form>':'';
   var mail='<div class="mailbox"><div><div class="lbl">Send by email</div><div>To <span class="mono">'+esc(d&&d.email?d.email:'(no email on this driver yet)')+'</span></div><div class="muted small">This page cannot send mail itself. Copy the address and message into your email.</div></div>'+
     '<div class="actions"><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="to">Copy email address</button><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="subject">Copy subject</button><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="body">Copy message</button></div></div>';
-  openModal(sheetHead('Invoice '+inv.no)+invoiceDoc(inv)+dates+mail+
+  openModal(sheetHead('Invoice '+inv.no)+invoiceDoc(inv)+mail+
     '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="copy-invoice" data-id="'+inv.id+'">Copy invoice as text</button>'+
-    (canEdit?(inv.status==='Paid'?'<button class="btn" type="button" data-action="unpay-invoice" data-id="'+inv.id+'">Mark unpaid</button>':'<button class="btn primary" type="button" data-action="pay-invoice" data-id="'+inv.id+'">Mark as paid</button>'):'')+
+    (canEdit?'<button class="btn" type="button" data-action="edit-invoice" data-id="'+inv.id+'">Edit invoice</button>'+(inv.status==='Paid'?'<button class="btn" type="button" data-action="unpay-invoice" data-id="'+inv.id+'">Mark unpaid</button>':'<button class="btn primary" type="button" data-action="pay-invoice" data-id="'+inv.id+'">Mark as paid</button>'):'')+
     '</div>',true);
 }
+function invDraft(inv){
+  var lines=[];
+  inv.loadIds.forEach(function(id){var l=getLoad(id);if(l)lines.push({id:id,fee:invFee(inv,l)});});
+  return {id:inv.id,no:inv.no,driverId:inv.driverId,issued:inv.issued,due:inv.due,status:inv.status==='Paid'?'Paid':'Pending',paidOn:inv.paidOn||'',
+    adjLabel:inv.adj?inv.adj.label:'',adjAmount:inv.adj?inv.adj.amount:'',note:inv.note||'',lines:lines};
+}
+function readInvDraft(f){
+  var d=formData(f);
+  var lines=String(d.lines||'').split(',').filter(Boolean).map(function(id){return {id:id,fee:d['fee_'+id]==null?'':d['fee_'+id]};});
+  return {id:d.id,no:d.no||'',driverId:d.driverId,issued:d.issued||'',due:d.due||'',status:d.status,paidOn:d.paidOn||'',adjLabel:d.adjLabel||'',adjAmount:d.adjAmount||'',note:d.note||'',lines:lines,addLoad:d.addLoad||''};
+}
+function draftTotal(dr){
+  var t=0;dr.lines.forEach(function(x){t+=Number(x.fee)||0;});
+  return r2(t+(Number(dr.adjAmount)||0));
+}
+function invoiceEditForm(dr){
+  var inv=getInv(dr.id);if(!inv)return;
+  var used=dr.lines.map(function(x){return x.id;});
+  var free=db.loads.filter(function(l){return (l.status==='Delivered'||inv.loadIds.indexOf(l.id)>-1)&&used.indexOf(l.id)<0;});
+  var rows=dr.lines.map(function(x){
+    var l=getLoad(x.id);if(!l)return '';
+    return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">'+esc(nm(getDrv(l.driverId)))+'</span></div></td><td class="num">'+money(l.rate)+'</td>'+
+      '<td class="num"><input class="amt" name="fee_'+esc(x.id)+'" type="number" step="0.01" min="0" value="'+esc(x.fee)+'" aria-label="Dispatch fee for '+esc(l.ref)+'"></td>'+
+      '<td><div class="rowact"><button class="btn sm" type="button" data-action="inv-del-line" data-load="'+esc(x.id)+'">Remove</button></div></td></tr>';}).join('');
+  var addRow=free.length?'<div class="addline"><select name="addLoad" aria-label="Load to add">'+free.map(function(l){return '<option value="'+esc(l.id)+'">'+esc(l.ref+' · '+nm(getDrv(l.driverId))+' · '+l.origin+' to '+l.dest)+'</option>';}).join('')+'</select><button class="btn sm" type="button" data-action="inv-add-line">Add load</button></div>':'<div class="muted small" style="margin-top:8px">No other delivered loads are waiting to be invoiced.</div>';
+  openModal(sheetHead('Edit invoice '+inv.no)+
+  '<form class="form" data-form="invedit"><input type="hidden" name="id" value="'+esc(dr.id)+'"><input type="hidden" name="lines" value="'+esc(used.join(','))+'">'+
+    field('Invoice number','no',dr.no,{required:true})+
+    field('Driver (billed to)','driverId',dr.driverId,{type:'select',options:db.drivers.map(function(d){return [d.id,d.name+' · '+d.carrier];})})+
+    field('Issue date','issued',dr.issued,{type:'date',required:true})+
+    field('Due date','due',dr.due,{type:'date',required:true})+
+    field('Status','status',dr.status,{type:'select',options:[['Pending','Pending'],['Paid','Paid']]})+
+    field('Paid on','paidOn',dr.paidOn,{type:'date',hint:'Used when the status is Paid. Leave blank to use today.'})+
+    '<div class="full"><div class="lbl" style="margin-bottom:6px">Loads and dispatch fees</div><div class="tablewrap">'+(rows?'<table class="tight" style="min-width:560px"><thead><tr><th>Load</th><th>Route</th><th class="num">Load rate</th><th class="num">Dispatch fee ($)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="empty">No loads on this invoice. Add one below.</div>')+'</div>'+addRow+'</div>'+
+    field('Adjustment label','adjLabel',dr.adjLabel,{hint:'Optional extra line, for example Late fee or Discount.'})+
+    field('Adjustment amount ($)','adjAmount',dr.adjAmount,{type:'number',step:'0.01',hint:'Use a minus sign for a discount.'})+
+    field('Note on this invoice','note',dr.note,{type:'textarea',full:true,hint:'Shown above the payment note.'})+
+    '<div class="full invprev"><span>Invoice total</span><b id="invPrev">'+money(draftTotal(dr))+'</b></div>'+
+    '<div class="formfoot"><button class="btn danger" type="button" data-action="delete-invoice" data-id="'+esc(dr.id)+'">Delete invoice</button><button class="btn" type="button" data-action="cancel-edit-invoice" data-id="'+esc(dr.id)+'">Cancel</button><button class="btn primary" type="submit">Save invoice</button></div></form>',true);
+}
+function invPreview(f){
+  var t=0;Array.prototype.forEach.call(f.querySelectorAll('input.amt'),function(i){t+=Number(i.value)||0;});
+  var a=f.querySelector('[name=adjAmount]');t+=a?(Number(a.value)||0):0;
+  var el=$('invPrev');if(el)el.textContent=money(r2(t));
+}
+
 
 /* ---------- payroll (Rs) ---------- */
 function rs(n){if(n==null||isNaN(n))return '—';var v=Math.round(n);return (v<0?'−':'')+'Rs '+NUM.format(Math.abs(v));}
@@ -1159,6 +1220,38 @@ function calcPay(e,ym){
   return {empId:e.id,ym:ym,base:base,loads:ls.length,feesUsd:feesUsd,rate:rate,commissionPct:pct,commissionUsd:r2(feesUsd*(pct/100)),commission:commission,fines:fines,fineNote:adj.fineNote||'',advance:advance,gross:gross,net:gross==null?null:gross-fines-advance};
 }
 function slipComUsd(p){return p.commissionUsd!=null?p.commissionUsd:r2((p.feesUsd||0)*(p.commissionPct||0)/100);}
+
+function slipNums(o){
+  var base=Math.round(Number(o.base)||0),commission=Math.round(Number(o.commission)||0),adv=Math.round(Number(o.advance)||0),fines=Math.round(Number(o.fines)||0);
+  return {gross:base+commission,net:base+commission-adv-fines};
+}
+function slipEditForm(p){
+  var n=slipNums(p);
+  openModal(sheetHead('Edit payslip '+p.no)+
+  '<form class="form" data-form="slipedit"><input type="hidden" name="id" value="'+esc(p.id)+'">'+
+    field('Payslip number','no',p.no,{required:true})+
+    field('Employee','empId',p.empId,{type:'select',options:db.employees.map(function(e){return [e.id,e.name+' · '+e.title];})})+
+    field('Pay month','ym',p.ym,{type:'month',required:true})+
+    field('Issue date','issued',p.issued,{type:'date',required:true})+
+    field('Base salary (Rs)','base',p.base,{type:'number',step:'1',min:0,hint:'Leave 0 for dispatchers.'})+
+    field('Loads counted','loads',p.loads,{type:'number',step:'1',min:0})+
+    field('Dispatch fees ($)','feesUsd',p.feesUsd,{type:'number',step:'0.01',min:0})+
+    field('Exchange rate (Rs per $1)','rate',p.rate,{type:'number',step:'0.01',min:0})+
+    field('Commission (%)','commissionPct',p.commissionPct,{type:'number',step:'0.1',min:0,max:100})+
+    field('Commission (Rs)','commission',p.commission,{type:'number',step:'1',min:0,hint:'Fees × percentage × rate. Type any amount to override it.'})+
+    '<div class="full"><button class="btn sm" type="button" data-action="slip-recalc">Recalculate commission from fees, % and rate</button></div>'+
+    field('Advance taken (Rs)','advance',p.advance||0,{type:'number',step:'1',min:0})+
+    field('Fines (Rs)','fines',p.fines||0,{type:'number',step:'1',min:0})+
+    field('Reason for the fine','fineNote',p.fineNote||'',{full:true})+
+    '<div class="full invprev"><span>Gross pay</span><b id="slipPrevG">'+rs(n.gross)+'</b><span>Net pay</span><b id="slipPrevN">'+rs(n.net)+'</b></div>'+
+    '<div class="formfoot"><button class="btn danger" type="button" data-action="delete-slip" data-id="'+esc(p.id)+'">Delete payslip</button><button class="btn" type="button" data-action="cancel-edit-slip" data-id="'+esc(p.id)+'">Cancel</button><button class="btn primary" type="submit">Save payslip</button></div></form>',true);
+}
+function slipPreview(f){
+  var v=function(k){var el=f.querySelector('[name='+k+']');return el?el.value:0;};
+  var n=slipNums({base:v('base'),commission:v('commission'),advance:v('advance'),fines:v('fines')});
+  var g=$('slipPrevG'),t=$('slipPrevN');if(g)g.textContent=rs(n.gross);if(t)t.textContent=rs(n.net);
+}
+
 function slipFor(empId,ym){return db.payslips.find(function(p){return p.empId===empId&&p.ym===ym;});}
 function pPayroll(){
   var ym=ui.ym,rate=fxFor(ym),saved=db.fx[ym]!=null;
@@ -1166,17 +1259,18 @@ function pPayroll(){
   var netTotal=rate==null?null:rows.reduce(function(a,r){return a+r.net;},0);
   var tbl=rows.map(function(r){
     var e=getEmp(r.empId),sl=slipFor(r.empId,ym);
-    var stale=sl&&r.net!=null&&(sl.net!==r.net||sl.rate!==r.rate||sl.commissionPct!==r.commissionPct||sl.fines!==r.fines||(sl.advance||0)!==r.advance);
+    if(sl&&sl.manual){r=Object.assign({},r,{base:sl.base,loads:sl.loads,feesUsd:sl.feesUsd,commissionPct:sl.commissionPct,commission:sl.commission,commissionUsd:slipComUsd(sl),advance:sl.advance||0,fines:sl.fines||0,net:sl.net});}
+    var stale=sl&&!sl.manual&&r.net!=null&&(sl.net!==r.net||sl.rate!==r.rate||sl.commissionPct!==r.commissionPct||sl.fines!==r.fines||(sl.advance||0)!==r.advance);
     return '<tr><td><div class="stack"><b>'+esc(e.name)+'</b><span class="muted small">'+esc(e.title)+'</span></div></td>'+
       '<td class="num">'+(e.title==='Dispatcher'?'<span class="muted">none</span>':rs(r.base))+'</td><td class="num">'+r.loads+'</td><td class="num">'+money(r.feesUsd)+'</td>'+
       '<td class="num">'+r.commissionPct+'%</td><td class="num">'+rs(r.commission)+'<div class="muted small">'+money(r.commissionUsd)+'</div></td>'+
       '<td class="num">'+(r.advance?'−Rs '+NUM.format(r.advance):'—')+'</td>'+
       '<td class="num">'+(r.fines?'−Rs '+NUM.format(r.fines):'—')+'</td>'+
       '<td class="num"><b>'+rs(r.net)+'</b></td>'+
-      '<td>'+(sl?(stale?'<span class="pill p-delivered">Needs re-issue</span>':pill('Issued')):'<span class="muted small">Not issued</span>')+'</td>'+
+      '<td>'+(sl?(sl.manual?'<span class="pill p-issued">Edited</span>':stale?'<span class="pill p-delivered">Needs re-issue</span>':pill('Issued')):'<span class="muted small">Not issued</span>')+'</td>'+
       '<td><div class="rowact">'+(sl?'<button class="btn sm" type="button" data-action="view-slip" data-id="'+sl.id+'">View</button>':'')+
       '<button class="btn sm" type="button" data-action="adjust-pay" data-emp="'+r.empId+'">Commission, advance, fines</button>'+
-      '<button class="btn sm '+((sl&&!stale)?'':'primary')+'" type="button" data-action="issue-slip" data-emp="'+r.empId+'"'+(rate==null?' disabled':'')+'>'+(sl?'Re-issue':'Issue payslip')+'</button></div></td></tr>';}).join('');
+      '<button class="btn sm '+((sl&&!stale&&!sl.manual)?'':'primary')+'" type="button" data-action="issue-slip" data-emp="'+r.empId+'"'+(rate==null?' disabled':'')+'>'+(sl?(sl.manual?'Reset to calculated':'Re-issue'):'Issue payslip')+'</button></div></td></tr>';}).join('');
   var note=rate==null?'Enter the exchange rate to work out pay in Rs.':
     (saved?'Rate saved for '+ymLabel(ym)+'.':'No rate saved for '+ymLabel(ym)+' yet. Using Rs '+NUM.format(rate)+' from an earlier month until you save one.');
   return head('Payroll','Pay is worked out in rupees. Dispatch fees in dollars are converted at the exchange rate you enter for the month.',
@@ -1223,7 +1317,7 @@ function issueSlip(empId,ym){
   var e=getEmp(empId);if(!e)return null;
   var c=calcPay(e,ym);if(c.rate==null)return null;
   var old=slipFor(empId,ym);
-  if(old){Object.assign(old,c,{issued:TODAY});return old;}
+  if(old){Object.assign(old,c,{issued:TODAY,manual:false});return old;}
   db.seq.payslip+=1;
   c.id=uid('ps');c.no='PS-'+ym.replace('-','')+'-'+String(db.seq.payslip).padStart(3,'0');c.issued=TODAY;
   db.payslips.push(c);return c;
@@ -1316,8 +1410,8 @@ var actions={
   'cal-nav':function(el){var t=CAL.y*12+(CAL.m-1)+Number(el.dataset.d);CAL.y=Math.floor(t/12);CAL.m=t%12+1;drawCal();},
   'cal-pick':function(el){calPick(el.dataset.v);},
   'cal-today':function(){calPick(CAL.kind==='month'?TODAY.slice(0,7):TODAY);},
-  'drv-period':function(el){if(session.role!=='admin'&&session.role!=='accountant')return;ui.drvPeriod=el.dataset.p;render();},
-  'driver-detail':function(el){if(session.role==='admin'||session.role==='accountant')driverDetail(el.dataset.id);},
+  'drv-period':function(el){ui.drvPeriod=el.dataset.p;render();},
+  'driver-detail':function(el){driverDetail(el.dataset.id);},
   'ov-period':function(el){if(session.role!=='admin'&&session.role!=='accountant')return;ui.ovPeriod=el.dataset.p;render();},
   'new-expense':function(){if(can('expenses'))expenseForm();},
   'edit-expense':function(el){if(!can('expenses'))return;var e=db.expenses.find(function(x){return x.id===el.dataset.id;});if(e)expenseForm(e);},
@@ -1372,8 +1466,34 @@ var actions={
   'issue-all':function(){if(!can('payroll'))return;
     if(!db.employees.length){toast('Add employees first.');return;}
     if(fxFor(ui.ym)==null){toast('Save the exchange rate for this month first.');return;}
-    db.employees.forEach(function(e){issueSlip(e.id,ui.ym);});persist();render();toast('Payslips issued for '+ymLabel(ui.ym));},
+    db.employees.forEach(function(e){var o=slipFor(e.id,ui.ym);if(o&&o.manual)return;issueSlip(e.id,ui.ym);});persist();render();toast('Payslips issued for '+ymLabel(ui.ym));},
   'view-slip':function(el){openSlip(el.dataset.id);},
+  'edit-invoice':function(el){if(!can('invoice'))return;var inv=getInv(el.dataset.id);if(inv)invoiceEditForm(invDraft(inv));},
+  'cancel-edit-invoice':function(el){viewInvoice(el.dataset.id);},
+  'inv-add-line':function(el){
+    if(!can('invoice'))return;var f=el.closest('form'),dr=readInvDraft(f);
+    if(!dr.addLoad)return;var l=getLoad(dr.addLoad);if(!l)return;
+    dr.lines.push({id:l.id,fee:loadFee(l)});invoiceEditForm(dr);},
+  'inv-del-line':function(el){
+    if(!can('invoice'))return;var f=el.closest('form'),dr=readInvDraft(f);
+    dr.lines=dr.lines.filter(function(x){return x.id!==el.dataset.load;});invoiceEditForm(dr);},
+  'delete-invoice':function(el){
+    if(!can('invoice'))return;
+    if(el.dataset.armed!=='1'){el.dataset.armed='1';el.textContent='Click again to delete';return;}
+    var inv=getInv(el.dataset.id);if(!inv)return;
+    inv.loadIds.forEach(function(id){var l=getLoad(id);if(l){l.status='Delivered';l.invoiceId='';}});
+    db.invoices=db.invoices.filter(function(x){return x.id!==inv.id;});
+    persist();closeModal();render();toast('Invoice deleted. Its loads are ready to invoice again.');},
+  'edit-slip':function(el){if(!can('payroll'))return;var p=db.payslips.find(function(x){return x.id===el.dataset.id;});if(p)slipEditForm(p);},
+  'cancel-edit-slip':function(el){openSlip(el.dataset.id);},
+  'slip-recalc':function(el){
+    var f=el.closest('form'),g=function(k){return Number(f.querySelector('[name='+k+']').value)||0;};
+    f.querySelector('[name=commission]').value=Math.round(g('feesUsd')*g('commissionPct')/100*g('rate'));slipPreview(f);},
+  'delete-slip':function(el){
+    if(!can('payroll'))return;
+    if(el.dataset.armed!=='1'){el.dataset.armed='1';el.textContent='Click again to delete';return;}
+    db.payslips=db.payslips.filter(function(x){return x.id!==el.dataset.id;});
+    persist();closeModal();render();toast('Payslip deleted');},
   'change-pw':function(el){pwForm(el.dataset.kind,el.dataset.id);},
   'adjust-pay':function(el){if(!can('payroll'))return;adjForm(el.dataset.emp);},
   'copy-slip':function(el){var p=db.payslips.find(function(x){return x.id===el.dataset.id;});copyText(slipText(p));},
@@ -1385,18 +1505,27 @@ var actions={
 function openSlip(id){
   var p=db.payslips.find(function(x){return x.id===id;});if(!p)return;
   openModal(sheetHead('Payslip '+p.no)+slipDoc(p)+
-    (can('payroll')?'<form class="form panelish" data-form="slipno"><input type="hidden" name="id" value="'+esc(p.id)+'">'+field('Payslip number','no',p.no,{required:true,full:true})+'<div class="formfoot" style="padding-top:0"><button class="btn sm" type="submit">Save number</button></div></form>':'')+
-    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="copy-slip" data-id="'+p.id+'">Copy as text</button></div>',true);
+    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="copy-slip" data-id="'+p.id+'">Copy as text</button>'+
+    (can('payroll')?'<button class="btn primary" type="button" data-action="edit-slip" data-id="'+p.id+'">Edit payslip</button>':'')+'</div>',true);
 }
 
 var forms={
-  'slipno':function(f){
+  'slipedit':function(f){
     if(!can('payroll'))return;
     var d=formData(f),p=db.payslips.find(function(x){return x.id===d.id;});if(!p)return;
     var no=String(d.no||'').trim();
     if(!no){toast('Enter a payslip number.');return;}
     if(db.payslips.some(function(x){return x.id!==p.id&&String(x.no).toLowerCase()===no.toLowerCase();})){toast('Another payslip already uses that number.');return;}
-    p.no=no;persist();render();openSlip(p.id);toast('Payslip number saved');
+    var e=getEmp(d.empId);if(!e){toast('Choose an employee.');return;}
+    if(!okMonth(d.ym)){toast('Enter the pay month as YYYY-MM.');return;}
+    if(!okDate(d.issued)){toast('Enter the issue date as YYYY-MM-DD, or pick it from the calendar.');return;}
+    if(db.payslips.some(function(x){return x.id!==p.id&&x.empId===d.empId&&x.ym===d.ym;})){toast('That employee already has a payslip for that month.');return;}
+    var o={no:no,empId:d.empId,ym:d.ym,issued:d.issued,base:Math.round(numv(d.base)),loads:Math.round(numv(d.loads)),feesUsd:r2(numv(d.feesUsd)),rate:numv(d.rate),commissionPct:numv(d.commissionPct),commission:Math.round(numv(d.commission)),advance:Math.round(numv(d.advance)),fines:Math.round(numv(d.fines)),fineNote:(d.fineNote||'').trim()};
+    var n=slipNums(o);o.gross=n.gross;o.net=n.net;o.commissionUsd=r2(o.feesUsd*o.commissionPct/100);
+    Object.assign(p,o);
+    var c=calcPay(e,d.ym);
+    p.manual=!(c.rate!=null&&c.net===p.net&&c.commission===p.commission&&c.base===p.base&&c.loads===p.loads&&c.rate===p.rate&&c.commissionPct===p.commissionPct&&c.fines===p.fines&&c.advance===p.advance&&Math.abs(c.feesUsd-p.feesUsd)<0.005);
+    persist();render();openSlip(p.id);toast('Payslip saved');
   },
   'expense':function(f){
     if(!can('expenses'))return;
@@ -1410,16 +1539,27 @@ var forms={
     if(i>-1)db.expenses[i]=rec;else db.expenses.push(rec);
     persist();closeModal();render();toast('Expense saved');
   },
-  'invdates':function(f){
+  'invedit':function(f){
     if(!can('invoice'))return;
-    var d=formData(f),inv=getInv(d.id);if(!inv)return;
-    var no=String(d.no||'').trim();
+    var dr=readInvDraft(f),inv=getInv(dr.id);if(!inv)return;
+    var no=String(dr.no).trim();
     if(!no){toast('Enter an invoice number.');return;}
     if(db.invoices.some(function(x){return x.id!==inv.id&&String(x.no).toLowerCase()===no.toLowerCase();})){toast('Another invoice already uses that number.');return;}
-    if(!okDate(d.issued)||!okDate(d.due)){toast('Enter both dates as YYYY-MM-DD, or pick them from the calendar.');return;}
-    if(d.due<d.issued){toast('The due date is before the issue date.');return;}
-    inv.no=no;inv.issued=d.issued;inv.due=d.due;inv.terms=daysBetween(d.issued,d.due);
-    persist();render();viewInvoice(inv.id);toast('Invoice details saved');
+    if(!getDrv(dr.driverId)){toast('Choose a driver.');return;}
+    if(!okDate(dr.issued)||!okDate(dr.due)){toast('Enter both dates as YYYY-MM-DD, or pick them from the calendar.');return;}
+    if(dr.due<dr.issued){toast('The due date is before the issue date.');return;}
+    if(dr.paidOn&&!okDate(dr.paidOn)){toast('Enter the paid date as YYYY-MM-DD, or leave it blank.');return;}
+    if(!dr.lines.length){toast('An invoice needs at least one load. Use Delete invoice to remove it.');return;}
+    if(dr.lines.some(function(x){return !(Number(x.fee)>=0);})){toast('Dispatch fees cannot be negative.');return;}
+    var paid=dr.status==='Paid',oldIds=inv.loadIds.slice(),fees={},ids=[];
+    dr.lines.forEach(function(x){ids.push(x.id);fees[x.id]=r2(Number(x.fee)||0);});
+    oldIds.forEach(function(id){if(ids.indexOf(id)<0){var l=getLoad(id);if(l){l.status='Delivered';l.invoiceId='';}}});
+    ids.forEach(function(id){var l=getLoad(id);if(l){l.status=paid?'Paid':'Invoiced';l.invoiceId=inv.id;}});
+    inv.no=no;inv.driverId=dr.driverId;inv.issued=dr.issued;inv.due=dr.due;inv.terms=daysBetween(dr.issued,dr.due);
+    inv.loadIds=ids;inv.fees=fees;inv.status=paid?'Paid':'Sent';inv.paidOn=paid?(dr.paidOn||TODAY):'';
+    inv.adj=Number(dr.adjAmount)?{label:(dr.adjLabel||'').trim()||'Adjustment',amount:r2(Number(dr.adjAmount))}:null;
+    inv.note=dr.note.trim();inv.total=invTotal(inv);
+    persist();render();viewInvoice(inv.id);toast('Invoice saved');
   },
   'pw':function(f){
     var d=formData(f),pw=String(d.pw||'').trim();
@@ -1514,6 +1654,10 @@ document.addEventListener('change',function(e){
   if(t.id==='ovYear'&&t.value){ui.ovYear=t.value;render();}
   if(t.id==='reportMonth'&&okMonth(t.value)){ui.reportYm=t.value;render();}
   if(t.id==='reportYear'&&t.value){ui.reportYear=t.value;render();}
+});
+document.addEventListener('input',function(e){
+  var f=e.target&&e.target.closest?e.target.closest('form[data-form]'):null;if(!f)return;
+  if(f.dataset.form==='invedit')invPreview(f);else if(f.dataset.form==='slipedit')slipPreview(f);
 });
 document.addEventListener('mousedown',function(e){
   if(CAL&&!e.target.closest('#cal')&&!e.target.closest('.calbtn'))closeCal();
