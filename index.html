@@ -770,6 +770,7 @@ async function loadAll(bg){
   if(session.role==='admin'||session.role==='accountant'){
     var upd={};rows.forEach(function(r){if(r.coll==='loads')upd[r.id]=r.updated_at;});
     var fixed=0;db.loads.forEach(function(l){if(!l.bookedAt&&upd[l.id]){l.bookedAt=new Date(upd[l.id]).toISOString();fixed++;}});
+    db.loads.forEach(function(l){var want='';if(l.status==='Paid'){var iv=l.invoiceId?getInv(l.invoiceId):null;want=iv&&iv.status==='Paid'&&iv.paidOn?String(iv.paidOn):(l.paidOn||'');}if((l.paidOn||'')!==want){l.paidOn=want;fixed++;}});
     if(fixed)setTimeout(persist,0);
   }
   await fetchDocs();
@@ -2183,7 +2184,7 @@ document.addEventListener('change',function(e){
 
 /* ---------- notifications ---------- */
 var notes=[],notesOk=false,notesErr='',notesT=null,lastOverdueRun=0,notesSoonT=null;
-var NOTE_KIND={invoice_paid:'Invoice paid',invoice_overdue:'Invoice overdue',load_overdue:'Delivery overdue',payroll_issued:'Payroll',doc_expiring:'Document expiring',doc_expired:'Document expired',driver_added:'New driver from sales',driver_assigned:'Driver assigned to you',driver_dead:'Driver marked Dead',sales_daily:'Sales daily report'};
+var NOTE_KIND={invoice_paid:'Invoice paid',invoice_overdue:'Invoice overdue',load_overdue:'Delivery overdue',payroll_issued:'Payroll',doc_expiring:'Document expiring',doc_expired:'Document expired',driver_added:'New driver from sales',driver_assigned:'Driver assigned to you',driver_dead:'Driver marked Dead',pay_deduction:'My salary',sales_daily:'Sales daily report'};
 /* desktop (system) notifications: Windows / macOS pop-ups while the portal is open in any tab, even minimized */
 var DESK_KEY='zulu-desktop-notes';
 function deskSupported(){return typeof window.Notification==='function';}
@@ -2270,7 +2271,7 @@ function fmtStamp(s){var d=new Date(s);return isNaN(d.getTime())?'':d.toLocaleSt
 function notesListHtml(){
   if(!notes.length)return '<div class="empty">No notifications yet.</div>';
   return notes.map(function(n){
-    return '<div class="readyrow'+(n.read_at?' noteread':'')+'"><div class="l"><b>'+(n.read_at?'':'<span class="dot" aria-label="Unread"></span>')+esc(n.title)+'</b><span class="muted small">'+esc(/^Driver marked Dead/.test(n.title||'')?'Driver marked Dead':(NOTE_KIND[n.kind]||''))+' · '+esc(fmtStamp(n.created_at))+'</span><span class="small">'+esc(n.body)+'</span></div>'+
+    return '<div class="readyrow'+(n.read_at?' noteread':'')+'"><div class="l"><b>'+(n.read_at?'':'<span class="dot" aria-label="Unread"></span>')+esc(n.title)+'</b><span class="muted small">'+esc(/^Driver marked Dead/.test(n.title||'')?'Driver marked Dead':n.link_type==='mysalary'?'My salary':(NOTE_KIND[n.kind]||''))+' · '+esc(fmtStamp(n.created_at))+'</span><span class="small">'+esc(n.body)+'</span></div>'+
       '<div class="actions">'+(n.link_type?'<button class="btn sm" type="button" data-action="note-open" data-id="'+esc(n.id)+'">Open</button>':'')+
       (n.read_at?'':'<button class="btn sm" type="button" data-action="note-read" data-id="'+esc(n.id)+'">Mark read</button>')+'</div></div>';}).join('');
 }
@@ -2336,6 +2337,9 @@ function openNoteTarget(n){
     else{var pg2=ROLES[session.role].pages;ui.page=pg2.indexOf('driverov')>-1?'driverov':pg2[0];render();driverInfo(dv.id);}
   }else if(n.link_type==='driver_docs'){
     if(getDrv(n.link_id)){var pg=ROLES[session.role].pages;ui.page=pg.indexOf('drivers')>-1?'drivers':'driverov';render();docEditId='';showDocs({type:'driver',id:n.link_id});}else toast('That driver is no longer available.');
+  }else if(n.link_type==='mysalary'){
+    var pm=ROLES[session.role].pages;
+    if(pm.indexOf('myreport')>-1){ui.page='myreport';ui.salMode='Month';if(/^\d{4}-\d{2}$/.test(n.link_id||''))ui.salYm=n.link_id;Object.keys(myEntCache).forEach(function(k){delete myEntCache[k];});Object.keys(myPayCache).forEach(function(k){delete myPayCache[k];});render();setTimeout(function(){var el=document.getElementById('myDeductions')||document.getElementById('mySalary');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},400);}
   }else if(n.link_type==='followups'){
     var pf=ROLES[session.role].pages;ui.page=pf.indexOf('followups')>-1?'followups':pf[0];render();
   }else if(n.link_type==='load'){
@@ -2869,6 +2873,25 @@ function driverWeek(wk){
     (rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Driver</th><th class="num">Loads</th><th class="num">Load revenue miles</th><th class="num">Deadhead miles</th><th class="num">Total miles</th><th class="num">Load revenue</th></tr></thead><tbody>'+rows+
     '<tr class="total"><td>Total</td><td class="num">'+t.n+'</td><td class="num">'+NUM.format(t.loaded)+'</td><td class="num">'+NUM.format(t.dead)+'</td><td class="num">'+NUM.format(t.loaded+t.dead)+'</td><td class="num">'+money(r2(t.rev))+'</td></tr></tbody></table></div>':'<div class="empty">No drivers or loads for you this week.</div>')+'</section>';
 }
+function myComMonth(ym){var sl=db.payslips.find(function(p){return p.empId===session.empId&&p.ym===ym;});var cs=comSet(session.empId,session.role==='sales',ym+'-01',lastDayOf(ym),sl||null);
+  return {count:cs.loads.length,fees:sumBy(cs.loads,loadFee),late:cs.late.length,pending:cs.pending.length,pendingFees:sumBy(cs.pending,loadFee)};}
+/* loads delivered in the period whose invoice the driver has not paid yet: shown separately, not in gross */
+function myPendingPanel(from,to,pct,rate,label){
+  var sales=session.role==='sales',slip=from.slice(8)==='01'&&to===lastDayOf(from.slice(0,7))?db.payslips.find(function(p){return p.empId===session.empId&&p.ym===from.slice(0,7);}):null;
+  var cs=comSet(session.empId,sales,from,to,slip||null),ls=cs.pending.slice().sort(function(a,b){return String(a.delivery).localeCompare(String(b.delivery));});
+  if(!ls.length)return '';
+  var fees=0,com=0;
+  var rows=ls.map(function(l){
+    var f=loadFee(l),c=r2(f*pct/100);fees+=f;com+=c;
+    var inv=l.invoiceId&&db.invoices?getInv(l.invoiceId):null,st;
+    if(l.status==='Delivered')st='<span class="pill p-delivered">Not invoiced yet</span>';
+    else if(inv)st=(invStatus(inv)==='Overdue'?'<span class="pill p-overdue">Overdue</span>':'<span class="pill p-sent">Invoice sent</span>')+'<div class="muted small">'+esc(inv.no||'')+(inv.due?' · due '+esc(fmtD(inv.due)):'')+'</div>';
+    else st='<span class="pill p-sent">Invoice sent</span>';
+    return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(fmtD(l.delivery))+'</td><td>'+st+'</td><td class="num">'+money(f)+'</td><td class="num"><b>'+(rate?rs(Math.round(c*rate)):money(c))+'</b>'+(rate?'<div class="muted small">'+money(c)+'</div>':'')+'</td></tr>';}).join('');
+  return '<section class="panel" style="border-left:4px solid var(--warn)"><header><div><h2>Waiting for payment · '+plural(ls.length,'load')+'</h2><div class="muted small">Delivered in '+esc(label)+', but the driver has not paid the invoice yet. This commission is <b>not</b> in your gross pay above; it is added to your payroll once the invoice is paid.</div></div></header>'+
+    '<div class="tablewrap"><table style="min-width:680px"><thead><tr><th>Load</th><th>Driver</th><th>Delivered</th><th>Invoice</th><th class="num">Dispatch fee</th><th class="num">Your commission ('+pct+'%)</th></tr></thead><tbody>'+rows+
+    '<tr class="total"><td colspan="4">Waiting for payment</td><td class="num">'+money(r2(fees))+'</td><td class="num">'+(rate?rs(Math.round(com*rate)):money(r2(com)))+'</td></tr></tbody></table></div></section>';
+}
 function myMonth(ym){return mySums(function(l){return String(l.delivery).slice(0,7)===ym;},{ym:ym});}
 function myRange(a,b){return mySums(function(l){var d=String(l.delivery||'');return d>=a&&d<=b;},{});}
 function isMyLoad(l){return session.role==='sales'?((getDrv(l.driverId)||{}).salesAgentId===session.empId):l.dispatcherId===session.empId;}
@@ -2884,9 +2907,48 @@ function myPayInfo(ym){
   },function(e){myPayCache[ym]={state:'error',at:Date.now(),msg:String(e&&e.message||e)};if(ui.page==='myreport')render();});
   return myPayCache[ym];
 }
+var myEntCache={};
+function myPayEntries(from,to){
+  var k=from+'|'+to,c=myEntCache[k];
+  if(c&&(c.state==='loading'||Date.now()-c.at<60000))return c;
+  myEntCache[k]={state:'loading',at:Date.now(),data:c&&c.data};
+  sb.rpc('zulu_my_pay_entries',{p_from:from,p_to:to}).then(function(r){
+    myEntCache[k]=r.error?{state:'error',at:Date.now(),msg:r.error.message||''}:{state:'ok',at:Date.now(),data:r.data||{months:[],items:[]}};
+    if(ui.page==='myreport')render();
+  },function(e){myEntCache[k]={state:'error',at:Date.now(),msg:String(e&&e.message||e)};if(ui.page==='myreport')render();});
+  return myEntCache[k];
+}
+/* the employee's own fines, advances, deductions and bonuses for the period, each with its reason */
+function myDedPanel(from,to,label){
+  var c=myPayEntries(from,to);
+  var head='<section class="panel" id="myDeductions" style="border-left:4px solid var(--bad);scroll-margin-top:90px"><header><div><h2>My fines and advances · '+esc(label)+'</h2><div class="muted small">Every fine, advance and deduction on your pay, with its reason.</div></div></header>';
+  if(c.state==='error'){
+    var missing=/zulu_my_pay_entries|function|schema cache/i.test(c.msg||'');
+    return head+'<div class="empty" style="padding:14px">'+(missing?'Fines and advances cannot be shown yet. Ask the admin to run migration_2026_10y_my_fines_advances.sql in Supabase.':'Could not load your fines and advances: '+esc(c.msg||'error'))+'</div></section>';
+  }
+  if(!c.data)return head+'<div class="empty" style="padding:14px">Loading…</div></section>';
+  var rows=[];
+  (c.data.months||[]).forEach(function(m){
+    var f=Math.round(Number(m.fines)||0),a=Math.round(Number(m.advance)||0);
+    if(f>0)rows.push({sort:m.ym+'-99',when:ymLabel(m.ym),type:'Fine',why:m.fineNote||'No reason given',amt:-f});
+    if(a>0)rows.push({sort:m.ym+'-99',when:ymLabel(m.ym),type:'Advance',why:'Taken off your '+ymLabel(m.ym)+' salary',amt:-a});
+  });
+  (c.data.items||[]).forEach(function(i){
+    if(i.type!=='Advance'&&i.type!=='Deduction'&&i.type!=='Bonus')return;
+    var a=Math.round(Number(i.amount)||0);if(!a)return;
+    rows.push({sort:String(i.date||''),when:fmtD(i.date),type:i.type,why:i.note||(i.type==='Bonus'?'Added to your pay':'No reason given'),amt:i.type==='Bonus'?a:-a});
+  });
+  if(!rows.length)return head+'<div class="empty" style="padding:14px">No fines or advances in this period.</div></section>';
+  rows.sort(function(a,b){return a.sort.localeCompare(b.sort);});
+  var off=rows.reduce(function(t,r){return t+(r.amt<0?-r.amt:0);},0);
+  return head+'<div class="tablewrap"><table style="min-width:520px"><thead><tr><th>Date / month</th><th>Type</th><th>Reason</th><th class="num">Amount</th></tr></thead><tbody>'+
+    rows.map(function(r){return '<tr><td>'+esc(r.when)+'</td><td><span class="pill '+(r.amt<0?'p-overdue':'p-issued')+'">'+esc(r.type)+'</span></td><td>'+esc(r.why)+'</td><td class="num">'+(r.amt<0?'− '+rs(-r.amt):'+ '+rs(r.amt))+'</td></tr>';}).join('')+
+    '<tr class="total"><td colspan="3">Total taken off</td><td class="num">'+(off?'− '+rs(off):'—')+'</td></tr></tbody></table></div>'+
+    '<p class="muted small" style="margin:8px 14px 12px">Monthly fines and advances come off that month\'s payslip. Dated advances and deductions come off the payment that covers their date.</p></section>';
+}
 function mySalaryHtml(){
   var ym=ui.salYm||TODAY.slice(0,7),e=getEmp(session.empId)||{title:session.role==='sales'?'Sales agent':'Dispatcher'};
-  var agent=session.role==='sales',ms=myMonth(ym);
+  var agent=session.role==='sales',ms=myComMonth(ym);
   var slip=db.payslips.filter(function(p){return p.empId===session.empId&&p.ym===ym;}).sort(function(a,b){return String(b.issued||'').localeCompare(String(a.issued||''));})[0];
   var custom=ui.salMode==='Custom Range',sFrom=ui.salFrom||TODAY.slice(0,7)+'-01',sTo=ui.salTo||TODAY;
   var chips='<div class="chips">'+['Month','Custom Range'].map(function(p){return '<button class="chip" type="button" data-action="sal-mode" data-p="'+p+'" aria-pressed="'+((p==='Custom Range')===custom)+'">'+p+'</button>';}).join('')+'</div>';
@@ -2902,7 +2964,7 @@ function mySalaryHtml(){
       dedNotice([{label:'Advance',amt:Math.round(Number(slip.advance)||0)},{label:'Fine',amt:Math.round(Number(slip.fines)||0),note:slip.fineNote||''}],slip.net)+
       '<div class="stats">'+statTile('Salary after advance & fines',rs(slip.net),'payslip '+(slip.no||'')+(slip.issued?' · issued '+fmtD(slip.issued):''))+statTile('Base pay',rs(slip.base||0),'for the month')+statTile('Commission',com,(slip.commissionPct||0)+'% of '+money(slip.feesUsd||0)+' dispatch fees')+statTile('Fines and advance',rs((slip.fines||0)+(slip.advance||0)),'taken off')+'</div>'+
       tbl(line('Base pay','',rs(slip.base||0))+line('Commission',(slip.commissionPct||0)+'% of '+money(slip.feesUsd||0)+' dispatch fees on '+plural(slip.loads||0,'load')+(slip.rate?' × Rs '+slip.rate+' per $':''),com)+
-        line('Gross pay','',rs(slip.gross),'total')+line('Fines',esc(slip.fineNote||''),slip.fines?'− '+rs(slip.fines):'—')+line('Advance','',slip.advance?'− '+rs(slip.advance):'—')+line('<b>Salary after advance &amp; fines</b>','This is the issued payslip. Open My payslips to download it.','<b>'+rs(slip.net)+'</b>','total')));
+        line('Gross pay','',rs(slip.gross),'total')+line('Fines',esc(slip.fineNote||''),slip.fines?'− '+rs(slip.fines):'—')+line('Advance','',slip.advance?'− '+rs(slip.advance):'—')+line('<b>Salary after advance &amp; fines</b>','This is the issued payslip. Open My payslips to download it.','<b>'+rs(slip.net)+'</b>','total'))+myDedPanel(ym+'-01',lastDayOf(ym),ymLabel(ym))+myPendingPanel(ym+'-01',lastDayOf(ym),Number(slip.commissionPct)||0,slip.rate||null,ymLabel(ym)));
   }
   var c=myPayInfo(ym);
   if(c.state==='error'){
@@ -2922,10 +2984,11 @@ function mySalaryHtml(){
     dedNotice([{label:'Advance',amt:adv},{label:'Fine',amt:fines,note:d.fineNote||''}],net)+
     '<div class="stats">'+statTile('Salary after advance & fines',net==null?'—':rs(net),net==null?'exchange rate not set yet':'after fines and advance')+statTile('Base pay',rs(base),baseNote)+statTile('Commission',comRs==null?money(comUsd):rs(comRs),pct+'% of '+money(ms.fees)+' '+feeWord)+statTile('Fines and advance',rs(fines+adv),'taken off')+'</div>'+
     tbl(line('Base pay',esc(baseNote),rs(base))+
-      line('Commission',pct+'% of '+money(ms.fees)+' '+feeWord+' ('+plural(ms.count,'load')+' delivered)'+(rate==null?'':' × Rs '+rate+' per $')+' = '+money(comUsd),comRs==null?money(comUsd):rs(comRs))+
+      line('Commission',pct+'% of '+money(ms.fees)+' '+feeWord+' ('+plural(ms.count,'paid load')+(ms.late?', '+ms.late+' paid late from an earlier month':'')+')'+(rate==null?'':' × Rs '+rate+' per $')+' = '+money(comUsd),comRs==null?money(comUsd):rs(comRs))+
+      (ms.pending?line('Waiting for payment',plural(ms.pending,'delivered load')+' · '+money(ms.pendingFees)+' dispatch fees. Commission is added once the driver pays the invoice.','—'):'')+
       line('Gross pay','',gross==null?'—':rs(gross),'total')+
       line('Fines',esc(d.fineNote||''),fines?'− '+rs(fines):'—')+line('Advance','',adv?'− '+rs(adv):'—')+
-      line('<b>Salary after advance &amp; fines</b>',rate==null?'The exchange rate for this month has not been set yet, so commission is shown in dollars.':'An estimate from loads delivered so far. The final amount is on your payslip once it is issued.','<b>'+(net==null?'—':rs(net))+'</b>','total')));
+      line('<b>Salary after advance &amp; fines</b>',rate==null?'The exchange rate for this month has not been set yet, so commission is shown in dollars.':'An estimate from loads paid so far. The final amount is on your payslip once it is issued.','<b>'+(net==null?'—':rs(net))+'</b>','total'))+myDedPanel(ym+'-01',lastDayOf(ym),ymLabel(ym))+myPendingPanel(ym+'-01',lastDayOf(ym),pct,rate,ymLabel(ym)));
 }
 function dedNotice(list,net){
   list=list.filter(function(x){return x.amt>0;});
@@ -2942,13 +3005,15 @@ function mySalaryRangeHtml(e,from,to,wrap,line,tbl){
   yms.forEach(function(ym){var c=myPayInfo(ym);if(c.state==='error')err=c.msg||'error';else if(!c.data)waiting=true;else infos[ym]=c.data;});
   if(err){var missing=/zulu_my_pay|function|schema cache/i.test(err);
     return wrap('',tbl('<tr><td><div class="empty" style="padding:14px">'+(missing?'Salary is not set up in the database yet. Ask the admin to run migration_2026_10m_my_salary.sql.':'Could not load your pay details: '+esc(err))+'</div></td></tr>'));}
+  var ent=myPayEntries(from,to);if(!ent.data&&ent.state==='loading')waiting=true;
   if(waiting)return wrap('',tbl('<tr><td><div class="empty" style="padding:14px">Working out your salary…</div></td></tr>'));
   /* Same calculation as Payroll > Custom Date Range, fed with this person's own figures for each month. */
   var first=infos[yms[0]],me=Object.assign({},e,{id:session.empId,base:Number(first.base)||0,commissionPct:Number(first.commissionPct)||0});
-  var keepFx=db.fx,keepAdj=db.payAdj,o;
+  var keepFx=db.fx,keepAdj=db.payAdj,keepItems=db.payitems,o;
   db.fx={};db.payAdj={};
+  if(ent.data)db.payitems=(ent.data.items||[]).map(function(i){return Object.assign({},i,{empId:session.empId});});
   yms.forEach(function(ym){var d=infos[ym];if(d.rate!=null)db.fx[ym]=Number(d.rate);db.payAdj[ym+'|'+session.empId]={commissionPct:Number(d.commissionPct)||0,fines:Number(d.fines)||0,advance:Number(d.advance)||0,fineNote:d.fineNote||''};});
-  try{o=rangeCalc(me,from,to);}finally{db.fx=keepFx;db.payAdj=keepAdj;}
+  try{o=rangeCalc(me,from,to);}finally{db.fx=keepFx;db.payAdj=keepAdj;db.payitems=keepItems;}
   var agent=session.role==='sales',feeWord=agent?'dispatch fees on your drivers\' loads':'dispatch fees on your loads';
   var comRows=o.comRows.map(function(c){return line('Commission · '+esc(ymLabel(c.ym)),c.pct+'% of '+money(c.fees)+' '+feeWord+(c.rate==null?' (exchange rate not set yet)':' × Rs '+c.rate+' per $'),c.rs==null?money(r2(c.fees*c.pct/100)):rs(c.rs));}).join('');
   var fullMonths=yms.filter(function(ym){return from<=ym+'-01'&&to>=lastDayOf(ym);});
@@ -2966,7 +3031,8 @@ function mySalaryRangeHtml(e,from,to,wrap,line,tbl){
       line('Fines',fullMonths.length?esc(fineNotes):'Monthly fines count only for whole months inside the range',o.fines?'− '+rs(o.fines):'—')+
       (o.deductions?line('Deductions',esc(itemNote('Deduction')),'− '+rs(o.deductions)):'')+
       line('<b>Salary after advance &amp; fines</b>',o.net==null?'An exchange rate is missing for a month in this range, so the total cannot be worked out yet.':'Worked out the same way as Payroll for a custom date range. The final amount is on your payslip once it is issued.','<b>'+(o.net==null?'—':rs(o.net))+'</b>','total'));
-  return wrap(plural(daysBetween(from,to)+1,'day'),body);
+  var lastInfo=infos[yms[yms.length-1]]||{};
+  return wrap(plural(daysBetween(from,to)+1,'day'),body+myDedPanel(from,to,fmtD(from)+' to '+fmtD(to))+myPendingPanel(from,to,Number(lastInfo.commissionPct)||Number(first.commissionPct)||0,lastInfo.rate==null?null:Number(lastInfo.rate),fmtD(from)+' to '+fmtD(to)));
 }
 function mySums(test,o){
   var ls=db.loads.filter(function(l){return isMyLoad(l)&&isDone(l)&&test(l);});
@@ -3539,12 +3605,62 @@ function fxFor(ym){
   var ks=Object.keys(db.fx).filter(function(k){return k<ym;}).sort();
   return ks.length?Number(db.fx[ks[ks.length-1]]):null;
 }
+/* ---------- commission: counted when the driver pays ----------
+   Each load belongs to the pay month of its delivery date, but its commission only counts once
+   the driver has paid the invoice for it. If the driver pays after that month's payslip (or a
+   custom-period payment covering that date) was issued, the commission goes to the next payroll
+   that is still open, as a late payment. Payslips and payments issued from now on remember exactly
+   which loads they paid (comLoadIds), so nothing is paid twice. Older payslips and payments, issued
+   under the earlier rule, already paid every load delivered in their period. */
+function loadPaidOn(l){
+  if(!l||l.status!=='Paid')return '';
+  if(l.paidOn)return String(l.paidOn);
+  var inv=l.invoiceId&&db.invoices?getInv(l.invoiceId):null;
+  return inv&&inv.status==='Paid'&&inv.paidOn?String(inv.paidOn):'';
+}
+function payDocs(empId){
+  var out=[];
+  db.payslips.forEach(function(p){if(p.empId===empId&&p.ym)out.push({from:p.ym+'-01',to:lastDayOf(p.ym),ids:Array.isArray(p.comLoadIds)?p.comLoadIds:null,doc:p});});
+  (db.payruns||[]).forEach(function(p){if(p.empId===empId&&p.from&&p.to)out.push({from:p.from,to:p.to,ids:Array.isArray(p.comLoadIds)?p.comLoadIds:null,doc:p});});
+  return out;
+}
+function docAt(docs,d){for(var i=0;i<docs.length;i++){if(docs[i].from<=d&&docs[i].to>=d)return docs[i];}return null;}
+function comPaidAlready(l,docs){
+  if(docs.some(function(x){return x.ids&&x.ids.indexOf(l.id)>-1;}))return true;
+  var c=docAt(docs,String(l.delivery||''));
+  return !!(c&&!c.ids);
+}
+/* the date a load's commission is counted on, or '' while it is unpaid or already paid out */
+function comDate(l,docs){
+  var del=String(l.delivery||'');
+  if(!del||comPaidAlready(l,docs))return '';
+  var pd=loadPaidOn(l);if(!pd)return '';
+  if(!docAt(docs,del))return del;
+  var d=pd>del?pd:del,c,guard=0;
+  while((c=docAt(docs,d))&&guard++<400)d=addDays(c.to,1);
+  return d;
+}
+function comSet(empId,agent,from,to,selfDoc){
+  var docs=payDocs(empId),self=null;
+  docs.forEach(function(x){if(selfDoc&&x.doc===selfDoc)self=x;});
+  var mine=function(l){return agent?((getDrv(l.driverId)||{}).salesAgentId===empId):(l.dispatcherId===empId);};
+  var out={loads:[],pending:[],late:[],dates:{}};
+  var inRange=function(d){return !!d&&d>=from&&d<=to;};
+  db.loads.forEach(function(l){
+    if(!mine(l)||!isDone(l))return;
+    var del=String(l.delivery||''),d='';
+    if(self&&self.ids){if(self.ids.indexOf(l.id)>-1){var pd=loadPaidOn(l);d=inRange(del)?del:(inRange(pd)?pd:from);}}
+    else if(self&&!self.ids){if(inRange(del))d=del;}
+    else{d=comDate(l,docs);if(!inRange(d))d='';}
+    if(d){out.loads.push(l);out.dates[l.id]=d;if(del<from)out.late.push(l);return;}
+    if(inRange(del)&&l.status!=='Paid'&&!comPaidAlready(l,docs))out.pending.push(l);
+  });
+  return out;
+}
 function adjFor(empId,ym){return db.payAdj[ym+'|'+empId]||{};}
 function calcPay(e,ym){
   var agent=e.title==='Sales agent';
-  var ls=db.loads.filter(function(l){
-    var mine=agent?((getDrv(l.driverId)||{}).salesAgentId===e.id):(l.dispatcherId===e.id);
-    return mine&&['Delivered','Invoiced','Paid'].indexOf(l.status)>-1&&String(l.delivery).slice(0,7)===ym;});
+  var cs=comSet(e.id,agent,ym+'-01',lastDayOf(ym),slipFor(e.id,ym)),ls=cs.loads;
   var feesUsd=sumBy(ls,loadFee);
   var adj=adjFor(e.id,ym);
   var pct=adj.commissionPct!=null?Number(adj.commissionPct):(Number(e.commissionPct)||0);
@@ -3554,7 +3670,7 @@ function calcPay(e,ym){
   var fines=Math.round(Number(adj.fines)||0);
   var advance=Math.round(Number(adj.advance)||0);
   var gross=commission==null?null:base+commission;
-  return {empId:e.id,ym:ym,base:base,loads:ls.length,feesUsd:feesUsd,rate:rate,commissionPct:pct,commissionUsd:r2(feesUsd*(pct/100)),commission:commission,fines:fines,fineNote:adj.fineNote||'',advance:advance,gross:gross,net:gross==null?null:gross-fines-advance};
+  return {empId:e.id,ym:ym,base:base,loads:ls.length,comLoadIds:ls.map(function(l){return l.id;}),lateLoads:cs.late.length,pendingLoads:cs.pending.length,pendingFeesUsd:sumBy(cs.pending,loadFee),feesUsd:feesUsd,rate:rate,commissionPct:pct,commissionUsd:r2(feesUsd*(pct/100)),commission:commission,fines:fines,fineNote:adj.fineNote||'',advance:advance,gross:gross,net:gross==null?null:gross-fines-advance};
 }
 function slipComUsd(p){return p.commissionUsd!=null?p.commissionUsd:r2((p.feesUsd||0)*(p.commissionPct||0)/100);}
 
@@ -3601,7 +3717,7 @@ function payBodyHtml(rows){
     if(sl&&sl.manual){r=Object.assign({},r,{base:sl.base,loads:sl.loads,feesUsd:sl.feesUsd,commissionPct:sl.commissionPct,commission:sl.commission,commissionUsd:slipComUsd(sl),advance:sl.advance||0,fines:sl.fines||0,net:sl.net});}
     var stale=sl&&!sl.manual&&r.net!=null&&(sl.net!==r.net||sl.rate!==r.rate||sl.commissionPct!==r.commissionPct||sl.fines!==r.fines||(sl.advance||0)!==r.advance);
     return '<tr><td><div class="stack"><b>'+esc(e.name)+'</b><span class="muted small">'+esc(e.title)+'</span></div></td>'+
-      '<td class="num">'+(e.title==='Dispatcher'?'<span class="muted">none</span>':rs(r.base))+'</td><td class="num">'+r.loads+'</td><td class="num">'+money(r.feesUsd)+'</td>'+
+      '<td class="num">'+(e.title==='Dispatcher'?'<span class="muted">none</span>':rs(r.base))+'</td><td class="num">'+r.loads+(r.lateLoads?'<div class="muted small">incl. '+r.lateLoads+' late</div>':'')+(r.pendingLoads?'<div class="small" style="color:var(--warn)" title="Delivered this month, invoice not paid yet">+'+r.pendingLoads+' unpaid</div>':'')+'</td><td class="num">'+money(r.feesUsd)+'</td>'+
       '<td class="num">'+r.commissionPct+'%</td><td class="num">'+rs(r.commission)+'<div class="muted small">'+money(r.commissionUsd)+'</div></td>'+
       '<td class="num">'+(r.advance?'−Rs '+NUM.format(r.advance):'—')+'</td>'+
       '<td class="num">'+(r.fines?'−Rs '+NUM.format(r.fines):'—')+'</td>'+
@@ -3683,7 +3799,7 @@ function pPayroll(){
   '<section class="panel paysec" id="secSlips"><header><div><h2>All Issued Payslips</h2><div class="muted small">Monthly payslips and custom-period payments. Issued records keep their amounts even if pay terms change later.</div></div></header>'+
     '<div class="toolbar"><input id="slipSearch" class="searchbox" type="search" placeholder="Search employee, number or month" value="'+esc(ui.slipQ)+'" aria-label="Search issued payslips"></div>'+
     '<div id="slipList">'+slipListHtml()+'</div></section>'+
-  '<p class="muted small" style="margin:0">Dispatchers are paid commission on the dispatch fees from loads they delivered in the month; sales agents on loads from drivers they signed. Dispatchers have no base salary, only a commission percentage. In custom date range payroll, base pay is each person\'s fixed base amount and never changes with the dates you pick (hourly staff are paid for the hours entered). Net pay is base plus commission, less any advance and fines.</p>';
+  '<p class="muted small" style="margin:0">Commission counts only once the driver has paid the invoice for a load. Each load belongs to the month it was delivered; if the driver pays after that month\'s payslip was issued, the commission is added to the next payroll as a late payment. Dispatchers earn on the loads they dispatched; sales agents on loads from drivers they signed. Dispatchers have no base salary, only a commission percentage. In custom date range payroll, base pay is each person\'s fixed base amount and never changes with the dates you pick (hourly staff are paid for the hours entered). Net pay is base plus commission, less any advance and fines.</p>';
 }
 function adjForm(empId){
   var e=getEmp(empId);if(!e)return;
@@ -3703,7 +3819,7 @@ function slipDoc(p){
   '<div class="meta"><div><b>Employee</b><span>'+esc(nm(e))+'</span><span class="muted small">'+esc(e?e.title:'')+'</span></div><div><b>Slip number</b><span class="mono">'+esc(p.no)+'</span></div><div><b>Issued</b><span>'+fmtD(p.issued)+'</span></div></div>'+
   '<div class="tablewrap"><table style="min-width:460px"><thead><tr><th>Earnings</th><th>Basis</th><th class="num">Amount</th></tr></thead><tbody>'+
     (isDisp?'':'<tr><td>Base salary</td><td class="muted">Monthly</td><td class="num">'+rs(p.base)+'</td></tr>')+
-    '<tr><td>Commission</td><td class="muted">'+p.commissionPct+'% of '+money(p.feesUsd)+' dispatch fees on '+plural(p.loads,'load')+'</td><td class="num">'+rs(p.commission)+'<div class="muted small">'+money(slipComUsd(p))+'</div></td></tr>'+
+    '<tr><td>Commission</td><td class="muted">'+p.commissionPct+'% of '+money(p.feesUsd)+' dispatch fees on '+plural(p.loads,Array.isArray(p.comLoadIds)?'paid load':'load')+'</td><td class="num">'+rs(p.commission)+'<div class="muted small">'+money(slipComUsd(p))+'</div></td></tr>'+
     '<tr><td><b>Gross pay</b></td><td></td><td class="num"><b>'+rs(p.gross)+'</b></td></tr>'+
     '<tr><td>Advance</td><td class="muted">Taken from the company</td><td class="num">'+(p.advance?'−Rs '+NUM.format(p.advance):'—')+'</td></tr>'+
     '<tr><td>Fines</td><td class="muted">'+esc(p.fines?(p.fineNote||'Fine'):'None')+'</td><td class="num">'+(p.fines?'−Rs '+NUM.format(p.fines):'—')+'</td></tr></tbody></table></div>'+
@@ -3763,11 +3879,10 @@ function rangeCalc(e,from,to){
     o.hours=sumBy(items.filter(function(i){return i.type==='Hours worked';}),function(i){return Number(i.amount)||0;});
     o.base=Math.round(rate0*o.hours);o.baseNote='Rs '+NUM.format(rate0)+' per hour × '+o.hours+' hours entered for this period';
   }else o.baseNote='Commission only. No base pay.';
-  var ls=db.loads.filter(function(l){
-    var mine=agent?((getDrv(l.driverId)||{}).salesAgentId===e.id):(l.dispatcherId===e.id);
-    return mine&&['Delivered','Invoiced','Paid'].indexOf(l.status)>-1&&l.delivery>=from&&l.delivery<=to;});
-  var by={};ls.forEach(function(l){var ym=String(l.delivery).slice(0,7);by[ym]=(by[ym]||0)+loadFee(l);});
-  var com=0,missing=false,fees=0;o.comRows=[];o.loads=ls.length;
+  var selfRun=(db.payruns||[]).find(function(p){return p.empId===e.id&&p.from===from&&p.to===to;});
+  var cs=comSet(e.id,agent,from,to,selfRun||null),ls=cs.loads;
+  var by={};ls.forEach(function(l){var ym=String(cs.dates[l.id]).slice(0,7);by[ym]=(by[ym]||0)+loadFee(l);});
+  var com=0,missing=false,fees=0;o.comRows=[];o.loads=ls.length;o.comLoadIds=ls.map(function(l){return l.id;});o.lateLoads=cs.late.length;o.pendingLoads=cs.pending.length;o.pendingFeesUsd=sumBy(cs.pending,loadFee);
   Object.keys(by).sort().forEach(function(ym){
     var f=r2(by[ym]),adj=adjFor(e.id,ym),pct=adj.commissionPct!=null?Number(adj.commissionPct):(Number(e.commissionPct)||0),rate=fxFor(ym),amt=null;
     fees+=f;if(rate==null)missing=true;else{amt=Math.round(f*pct/100*rate);com+=amt;}
@@ -3829,7 +3944,7 @@ function rgRowsHtml(r){
 }
 function rangePanelHtml(){
   var r=curRg(),t=rgRowsHtml(r);
-  return '<section class="panel" id="rgPanel"><header><div><h2>Custom date range payroll</h2><div class="muted small">Pick any period. Base pay is each person\'s fixed base amount and does not change with the dates; commission is worked out from the loads actually delivered in the period.</div></div>'+
+  return '<section class="panel" id="rgPanel"><header><div><h2>Custom date range payroll</h2><div class="muted small">Pick any period. Base pay is each person\'s fixed base amount and does not change with the dates; commission is worked out from loads delivered in the period whose invoices are paid, plus late payments for earlier loads.</div></div>'+
     '<button class="btn primary" type="button" data-action="rg-issue-all"'+(t.payable?'':' disabled')+'>Issue all payments ('+t.payable+')</button></header>'+
     '<div class="toolbar"><div class="chips">'+rgChips()+'</div></div>'+
     '<div class="toolbar"><label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>Start date</span>'+dateInput('rgFrom','',r.from,'date')+'</label>'+
@@ -3882,7 +3997,7 @@ function issueRun(empId,from,to){
   if(c.net==null)return {err:e.name+': save the exchange rate for the month first.'};
   if(c.net<0)return {err:e.name+': deductions are larger than pay.'};
   db.seq.payrun+=1;
-  var pr={id:uid('pr'),no:'PR-'+String(db.seq.payrun).padStart(4,'0'),empId:empId,empName:e.name,empTitle:e.title,baseMonths:c.baseMonths,from:from,to:to,issued:TODAY,basis:c.basis,days:c.days,base:c.base,baseNote:c.baseNote,hours:c.hours,loads:c.loads,feesUsd:c.feesUsd,comRows:c.comRows,commission:c.commission,bonus:c.bonus,gross:c.gross,advance:c.advance,fines:c.fines,deductions:c.deductions,net:c.net,items:c.items.map(function(i){return {date:i.date,type:i.type,amount:i.amount,note:i.note||''};})};
+  var pr={id:uid('pr'),no:'PR-'+String(db.seq.payrun).padStart(4,'0'),empId:empId,empName:e.name,empTitle:e.title,baseMonths:c.baseMonths,from:from,to:to,issued:TODAY,basis:c.basis,days:c.days,base:c.base,baseNote:c.baseNote,hours:c.hours,loads:c.loads,comLoadIds:c.comLoadIds,feesUsd:c.feesUsd,comRows:c.comRows,commission:c.commission,bonus:c.bonus,gross:c.gross,advance:c.advance,fines:c.fines,deductions:c.deductions,net:c.net,items:c.items.map(function(i){return {date:i.date,type:i.type,amount:i.amount,note:i.note||''};})};
   db.payruns.push(pr);return {run:pr};
 }
 function runDoc(p){
@@ -4406,11 +4521,11 @@ var actions={
   'copy-invoice':function(el){copyText(invoiceText(getInv(el.dataset.id)));},
   'pay-invoice':function(el){if(!can('invoice'))return;
     var inv=getInv(el.dataset.id);inv.status='Paid';inv.paidOn=TODAY;
-    inv.loadIds.forEach(function(id){var l=getLoad(id);if(l)l.status='Paid';});
+    inv.loadIds.forEach(function(id){var l=getLoad(id);if(l){l.status='Paid';l.paidOn=inv.paidOn;}});
     persist();render();viewInvoice(inv.id);toast('Marked as paid');},
   'unpay-invoice':function(el){if(!can('invoice'))return;
     var inv=getInv(el.dataset.id);inv.status='Sent';inv.paidOn='';
-    inv.loadIds.forEach(function(id){var l=getLoad(id);if(l)l.status='Invoiced';});
+    inv.loadIds.forEach(function(id){var l=getLoad(id);if(l){l.status='Invoiced';l.paidOn='';}});
     persist();render();viewInvoice(inv.id);toast('Marked as unpaid');},
   'issue-slip':function(el){if(!can('payroll'))return;issueErr='';var p=issueSlip(el.dataset.emp,ui.ym);if(!p){toast(issueErr||'Save the exchange rate for this month first.');return;}persist();render();openSlip(p.id);toast('Payslip '+p.no+' issued');},
   'issue-all':function(){if(!can('payroll'))return;
@@ -4618,10 +4733,11 @@ var forms={
     if(dr.lines.some(function(x){return !(Number(x.fee)>=0);})){toast('Dispatch fees cannot be negative.');return;}
     var paid=dr.status==='Paid',oldIds=inv.loadIds.slice(),fees={},ids=[];
     dr.lines.forEach(function(x){ids.push(x.id);fees[x.id]=r2(Number(x.fee)||0);});
-    oldIds.forEach(function(id){if(ids.indexOf(id)<0){var l=getLoad(id);if(l){l.status='Delivered';l.invoiceId='';}}});
+    oldIds.forEach(function(id){if(ids.indexOf(id)<0){var l=getLoad(id);if(l){l.status='Delivered';l.invoiceId='';l.paidOn='';}}});
     ids.forEach(function(id){var l=getLoad(id);if(l){l.status=paid?'Paid':'Invoiced';l.invoiceId=inv.id;}});
     inv.no=no;inv.driverId=dr.driverId;inv.issued=dr.issued;inv.due=dr.due;inv.terms=daysBetween(dr.issued,dr.due);
     inv.loadIds=ids;inv.fees=fees;inv.status=paid?'Paid':'Sent';inv.paidOn=paid?(dr.paidOn||TODAY):'';
+     ids.forEach(function(id){var l=getLoad(id);if(l)l.paidOn=inv.paidOn||'';});
     inv.adj=Number(dr.adjAmount)?{label:(dr.adjLabel||'').trim()||'Adjustment',amount:r2(Number(dr.adjAmount))}:null;
     inv.note=dr.note.trim();inv.total=invTotal(inv);
     persist();render();viewInvoice(inv.id);toast('Invoice saved');
