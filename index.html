@@ -3668,12 +3668,15 @@ function comSet(empId,agent,from,to,selfDoc){
   return out;
 }
 function adjFor(empId,ym){return db.payAdj[ym+'|'+empId]||{};}
+/* commission % for a month: the month's own % if above 0, otherwise the employee's default
+   (a 0 saved with a fine or advance while the default was missing must not wipe the commission) */
+function pctFor(adj,e){var a=Number(adj&&adj.commissionPct);return a>0?a:(Number(e&&e.commissionPct)||0);}
 function calcPay(e,ym){
   var agent=e.title==='Sales agent';
   var cs=comSet(e.id,agent,ym+'-01',lastDayOf(ym),slipFor(e.id,ym)),ls=cs.loads;
   var feesUsd=sumBy(ls,loadFee);
   var adj=adjFor(e.id,ym);
-  var pct=adj.commissionPct!=null?Number(adj.commissionPct):(Number(e.commissionPct)||0);
+  var pct=pctFor(adj,e);
   var rate=fxFor(ym);
   var base=(payBasisOf(e)==='Monthly salary'&&(agent||Number(e.base)))?Math.round(Number(e.base)||0):0;
   var commission=rate==null?null:Math.round(feesUsd*(pct/100)*rate);
@@ -3894,7 +3897,7 @@ function rangeCalc(e,from,to){
   var by={};ls.forEach(function(l){var ym=String(cs.dates[l.id]).slice(0,7);by[ym]=(by[ym]||0)+loadFee(l);});
   var com=0,missing=false,fees=0;o.comRows=[];o.loads=ls.length;o.comLoadIds=ls.map(function(l){return l.id;});o.lateLoads=cs.late.length;o.pendingLoads=cs.pending.length;o.pendingFeesUsd=sumBy(cs.pending,loadFee);
   Object.keys(by).sort().forEach(function(ym){
-    var f=r2(by[ym]),adj=adjFor(e.id,ym),pct=adj.commissionPct!=null?Number(adj.commissionPct):(Number(e.commissionPct)||0),rate=fxFor(ym),amt=null;
+    var f=r2(by[ym]),adj=adjFor(e.id,ym),pct=pctFor(adj,e),rate=fxFor(ym),amt=null;
     fees+=f;if(rate==null)missing=true;else{amt=Math.round(f*pct/100*rate);com+=amt;}
     o.comRows.push({ym:ym,fees:f,pct:pct,rate:rate,rs:amt});});
   o.feesUsd=r2(fees);o.missingRate=missing;o.commission=missing?null:com;
@@ -4803,7 +4806,8 @@ var forms={
   'adj':function(f){
     if(!can('payroll'))return;
     var d=formData(f);
-    db.payAdj[ui.ym+'|'+d.emp]={commissionPct:numv(d.commissionPct),advance:Math.round(numv(d.advance)),fines:Math.round(numv(d.fines)),fineNote:(d.fineNote||'').trim()};
+    var ae=getEmp(d.emp),ap=numv(d.commissionPct);
+    db.payAdj[ui.ym+'|'+d.emp]={commissionPct:ae&&ap===(Number(ae.commissionPct)||0)?null:ap,advance:Math.round(numv(d.advance)),fines:Math.round(numv(d.fines)),fineNote:(d.fineNote||'').trim()};
     persist();closeModal();render();
     toast(slipFor(d.emp,ui.ym)?'Saved. Re-issue the payslip to update it.':'Saved');
   },
