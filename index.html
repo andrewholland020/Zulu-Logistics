@@ -3059,14 +3059,6 @@ function pMyReport(){
   var years=Object.keys(set).sort().reverse();
   var rows=ms.loads.slice().sort(function(a,b){return loadDay(b).localeCompare(loadDay(a));}).map(function(l){
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(brokerName(l))+'</td><td>'+fmtD(l.pickup)+'<div class="muted small">Drop-off '+fmtD(l.delivery)+'</div></td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(loadFee(l))+'</td></tr>';}).join('');
-  var months=[];for(var m=1;m<=12;m++)months.push(myMonth(yr+'-'+pad(m)));
-  var maxF=Math.max.apply(null,months.map(function(x){return x.fees;}).concat([1]));
-  var tot={count:0,rev:0,fees:0,miles:0};
-  var yrows=months.map(function(s,i){
-    tot.count+=s.count;tot.rev+=s.rev;tot.fees+=s.fees;tot.miles+=s.miles;
-    if(!s.count)return '<tr class="quiet"><td>'+monthName(i+1)+'</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>';
-    return '<tr><td>'+monthName(i+1)+'</td><td class="num">'+s.count+'</td><td class="num">'+money(s.rev)+'</td><td class="num">'+money(s.fees)+'<div class="bar" aria-hidden="true"><i style="width:'+Math.round(s.fees/maxF*100)+'%"></i></div></td><td class="num">'+NUM.format(s.miles)+'</td></tr>';}).join('');
-  tot.rev=r2(tot.rev);tot.fees=r2(tot.fees);
   var yourLoads=session.role==='sales'?'on your drivers\' loads':'earned on your loads';
   return head('My report',(session.role==='sales'?'Your salary, and loads delivered by the drivers you brought in':'Your salary, and your own loads and revenue')+(me?' · '+me.name:''))+
   '<div class="rsec"><div class="pagehead"><div><h2>'+(custom?'Custom date range':'Month')+'</h2><div class="sub">'+esc(period)+'</div></div>'+
@@ -3080,16 +3072,7 @@ function pMyReport(){
     statTile('Miles',NUM.format(ms.miles),NUM.format(ms.deadhead)+' deadhead miles')+
   '</div>'+
   '<section class="panel"><header><h2>'+(custom?'Loads delivered in this range':'Loads delivered this month')+'</h2></header>'+(rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Driver</th><th>Broker</th><th>Pickup</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No deliveries in this '+(custom?'date range':'month')+'.</div>')+'</section></div>'+
-  '<div class="rsec"><div class="pagehead"><div><h2>Year</h2><div class="sub">January to December '+esc(yr)+'</div></div>'+
-    '<label class="field" style="grid-template-columns:auto 120px;align-items:center;gap:10px"><span>Year</span><select id="reportYear">'+years.map(function(y){return '<option value="'+y+'"'+(y===yr?' selected':'')+'>'+y+'</option>';}).join('')+'</select></label></div>'+
-  '<div class="stats">'+
-    statTile('Loads delivered',String(tot.count),'in '+yr)+
-    statTile('Load revenue',money(tot.rev),'total load rates')+
-    statTile('Dispatch fees',money(tot.fees),yourLoads)+
-    statTile('Miles',NUM.format(tot.miles),'loaded miles')+
-  '</div>'+
-  '<section class="panel"><div class="tablewrap"><table style="min-width:520px"><thead><tr><th>Month</th><th class="num">Loads</th><th class="num">Load revenue</th><th class="num">Dispatch fees</th><th class="num">Miles</th></tr></thead><tbody>'+yrows+
-    '<tr class="total"><td>Total</td><td class="num">'+tot.count+'</td><td class="num">'+money(tot.rev)+'</td><td class="num">'+money(tot.fees)+'</td><td class="num">'+NUM.format(tot.miles)+'</td></tr></tbody></table></div></section></div>'+mySalaryHtml();
+  ''+mySalaryHtml();
 }
 
 /* ---------- driver overview ---------- */
@@ -3788,6 +3771,50 @@ function pMyPay(){
     '<div class="empty">'+(session.empId?'No payslips have been issued to you yet.':'This login is not linked to a team member, so there are no payslips to show.')+'</div>')+'</section>'+
   '<p class="muted small" style="margin:0">Only you, the admin and the accountant can see your payslips. You get a notification each time one is issued.</p>';
 }
+/* ---------- yearly report per employee (admin only) ---------- */
+function empYearMonth(e,ym){
+  var agent=e.title==='Sales agent';
+  var ls=db.loads.filter(function(l){return isDone(l)&&loadDay(l).slice(0,7)===ym&&(agent?((getDrv(l.driverId)||{}).salesAgentId===e.id):l.dispatcherId===e.id);});
+  return {count:ls.length,rev:sumBy(ls,function(l){return l.rate;}),fees:sumBy(ls,loadFee),miles:ls.reduce(function(a,l){return a+(Number(l.miles)||0);},0)};
+}
+function adminYearHtml(){
+  if(!session||session.role!=='admin')return '';
+  var emps=db.employees.filter(function(e){return e.title==='Dispatcher'||e.title==='Sales agent';}).sort(function(a,b){return String(a.title).localeCompare(String(b.title))||String(a.name).localeCompare(String(b.name));});
+  if(!emps.length)return '';
+  var e=getEmp(ui.ayEmp);if(!e||emps.indexOf(e)<0)e=emps[0];
+  var yr=ui.ayYear||TODAY.slice(0,4),agent=e.title==='Sales agent';
+  var set={};set[TODAY.slice(0,4)]=1;set[yr]=1;
+  db.loads.forEach(function(l){if(loadDay(l))set[loadDay(l).slice(0,4)]=1;});
+  db.payslips.forEach(function(p){if(p.ym)set[String(p.ym).slice(0,4)]=1;});
+  var years=Object.keys(set).sort().reverse();
+  var months=[];for(var m=1;m<=12;m++)months.push(empYearMonth(e,yr+'-'+pad(m)));
+  var maxF=Math.max.apply(null,months.map(function(x){return x.fees;}).concat([1]));
+  var tot={count:0,rev:0,fees:0,miles:0,gross:0,net:0,slips:0};
+  var slipOf=function(ym){return db.payslips.filter(function(p){return p.empId===e.id&&p.ym===ym;}).sort(function(a,b){return String(b.issued||'').localeCompare(String(a.issued||''));})[0];};
+  var grossCell=function(sl){
+    if(!sl)return '<td class="num"><span class="muted small">Not issued</span></td>';
+    return '<td class="num"><b>'+rs(Math.round(Number(sl.gross)||0))+'</b><div class="muted small">'+esc(sl.no||'Payslip')+(sl.net!=null&&Number(sl.net)!==Number(sl.gross)?' · net '+rs(Math.round(Number(sl.net)||0)):'')+'</div></td>';};
+  var yrows=months.map(function(s,i){
+    var sl=slipOf(yr+'-'+pad(i+1));
+    tot.count+=s.count;tot.rev+=s.rev;tot.fees+=s.fees;tot.miles+=s.miles;
+    if(sl){tot.gross+=Math.round(Number(sl.gross)||0);tot.net+=Math.round(Number(sl.net)||0);tot.slips++;}
+    if(!s.count)return '<tr class="quiet"><td>'+monthName(i+1)+'</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>'+(sl?grossCell(sl):'<td class="num">—</td>')+'</tr>';
+    return '<tr><td>'+monthName(i+1)+'</td><td class="num">'+s.count+'</td><td class="num">'+money(s.rev)+'</td><td class="num">'+money(s.fees)+'<div class="bar" aria-hidden="true"><i style="width:'+Math.round(s.fees/maxF*100)+'%"></i></div></td><td class="num">'+NUM.format(s.miles)+'</td>'+grossCell(sl)+'</tr>';}).join('');
+  tot.rev=r2(tot.rev);tot.fees=r2(tot.fees);
+  var opt=function(t){var g=emps.filter(function(x){return x.title===t;});return g.length?'<optgroup label="'+esc(t==='Dispatcher'?'Dispatchers':'Sales agents')+'">'+g.map(function(x){return '<option value="'+esc(x.id)+'"'+(x===e?' selected':'')+'>'+esc(x.name)+'</option>';}).join('')+'</optgroup>':'';};
+  return '<section class="panel paysec" id="secYear"><header><div><h2>Yearly Report</h2><div class="muted small">One employee\'s loads, dispatch fees and payslip gross pay for each month of the year. Only the admin sees this section.</div></div></header>'+
+    '<div class="toolbar"><label class="field" style="grid-template-columns:auto 200px;align-items:center;gap:10px"><span>Employee</span><select id="ayEmp">'+opt('Dispatcher')+opt('Sales agent')+'</select></label>'+
+    '<label class="field" style="grid-template-columns:auto 110px;align-items:center;gap:10px"><span>Year</span><select id="ayYear">'+years.map(function(y){return '<option value="'+y+'"'+(y===yr?' selected':'')+'>'+y+'</option>';}).join('')+'</select></label></div>'+
+    '<div class="stats" style="padding:0 14px">'+
+      statTile('Loads delivered',String(tot.count),esc(e.name)+' · '+yr)+
+      statTile('Load revenue',money(tot.rev),'total load rates')+
+      statTile('Dispatch fees',money(tot.fees),agent?'on loads of drivers they signed':'on loads they dispatched')+
+      statTile('Gross pay',tot.slips?rs(tot.gross):'—',tot.slips?plural(tot.slips,'payslip')+' · net '+rs(tot.net):'no payslips issued in '+yr)+
+    '</div>'+
+    '<div class="tablewrap"><table style="min-width:680px"><thead><tr><th>Month</th><th class="num">Loads</th><th class="num">Load revenue</th><th class="num">Dispatch fees</th><th class="num">Miles</th><th class="num">Gross pay (payslip)</th></tr></thead><tbody>'+yrows+
+    '<tr class="total"><td>Total</td><td class="num">'+tot.count+'</td><td class="num">'+money(tot.rev)+'</td><td class="num">'+money(tot.fees)+'</td><td class="num">'+NUM.format(tot.miles)+'</td><td class="num">'+(tot.slips?rs(tot.gross)+'<div class="muted small">net '+rs(tot.net)+'</div>':'—')+'</td></tr></tbody></table></div>'+
+    '<p class="muted small" style="margin:8px 14px 12px">Loads count in the month of their pickup date once delivered. Gross pay is the amount on the payslip issued for that month (base pay plus commission, before advance and fines).</p></section>';
+}
 function pPayroll(){
   var ym=ui.ym,rate=fxFor(ym),saved=db.fx[ym]!=null;
   var rows=db.employees.map(function(e){return calcPay(e,ym);});
@@ -3796,6 +3823,7 @@ function pPayroll(){
   var note=rate==null?'Enter the exchange rate to work out pay in Rs.':
     (saved?'Rate saved for '+ymLabel(ym)+'.':'No rate saved for '+ymLabel(ym)+' yet. Using Rs '+NUM.format(rate)+' from an earlier month until you save one.');
   var nav=[['secRange','Custom Date Range Payroll'],['secFx','Exchange Rate'],['secInv','Invoice Search'],['secSlips','All Issued Payslips']];
+  if(session.role==='admin')nav.push(['secYear','Yearly Report']);
   return head('Payroll','Pay is worked out in rupees. Dispatch fees in dollars are converted at the exchange rate you enter for the month.','')+
   '<nav class="chips paynav" aria-label="Payroll sections">'+nav.map(function(n,i){return '<button class="chip" type="button" data-action="pay-jump" data-to="'+n[0]+'">'+(i+1)+'. '+n[1]+'</button>';}).join('')+'</nav>'+
   '<div id="secRange" class="paysec">'+rangePanelHtml()+'</div>'+
@@ -3811,7 +3839,7 @@ function pPayroll(){
     '<div id="payInvBody">'+payInvHtml()+'</div></section>'+
   '<section class="panel paysec" id="secSlips"><header><div><h2>All Issued Payslips</h2><div class="muted small">Monthly payslips and custom-period payments. Issued records keep their amounts even if pay terms change later.</div></div></header>'+
     '<div class="toolbar"><input id="slipSearch" class="searchbox" type="search" placeholder="Search employee, number or month" value="'+esc(ui.slipQ)+'" aria-label="Search issued payslips"></div>'+
-    '<div id="slipList">'+slipListHtml()+'</div></section>'+
+    '<div id="slipList">'+slipListHtml()+'</div></section>'+adminYearHtml()+
   '<p class="muted small" style="margin:0">Commission counts only once the driver has paid the invoice for a load. Each load belongs to the month of its pickup date (it must be delivered); if the driver pays after that month\'s payslip was issued, the commission is added to the next payroll as a late payment. Dispatchers earn on the loads they dispatched; sales agents on loads from drivers they signed. Dispatchers have no base salary, only a commission percentage. In custom date range payroll, base pay is each person\'s fixed base amount and never changes with the dates you pick (hourly staff are paid for the hours entered). Net pay is base plus commission, less any advance and fines.</p>';
 }
 function adjForm(empId){
@@ -4902,6 +4930,8 @@ document.addEventListener('change',function(e){
   if(t.id==='reportMonth'&&okMonth(t.value)){ui.reportYm=t.value;render();}
   if(t.id==='salMonth'&&okMonth(t.value)){ui.salYm=t.value;render();}
   if(t.id==='reportYear'&&t.value){ui.reportYear=t.value;render();}
+  if(t.id==='ayEmp'&&t.value){ui.ayEmp=t.value;render();}
+  if(t.id==='ayYear'&&t.value){ui.ayYear=t.value;render();}
 });
 document.addEventListener('input',function(e){
   var f=e.target&&e.target.closest?e.target.closest('form[data-form]'):null;if(!f)return;
