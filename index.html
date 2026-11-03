@@ -606,6 +606,9 @@ function snapshot(){
     add('employees',e.id,pub);
     if(e.base!==undefined||e.commissionPct!==undefined)add('emp_pay',e.id,{id:e.id,base:e.base||0,commissionPct:e.commissionPct||0});
   });
+  var terms=Object.assign({},db.empPay||{});
+  db.employees.forEach(function(e){if(e.base!==undefined||e.commissionPct!==undefined)terms[e.id]={base:Number(e.base)||0,commissionPct:Number(e.commissionPct)||0};});
+  if(Object.keys(terms).length)add('payroll','empPay',{v:terms});
   db.loads.forEach(function(l){add('loads',l.id,l,[l.dispatcherId||'']);});
   db.invoices.forEach(function(i){
     var ids=[];i.loadIds.forEach(function(id){var l=getLoad(id);if(l&&l.dispatcherId&&ids.indexOf(l.dispatcherId)<0)ids.push(l.dispatcherId);});
@@ -742,17 +745,23 @@ async function fetchAll(table,select){
 }
 function lastNum(s){var m=/(\d+)\s*$/.exec(String(s||''));return m?Number(m[1]):0;}
 function buildDb(rows){
-  var d=blank(),pay={},have={};
+  var d=blank(),pay={},have={},at={};
   rows.forEach(function(r){
-    have[r.coll+'|'+r.id]=1;
+    have[r.coll+'|'+r.id]=1;at[r.coll+'|'+r.id]=String(r.updated_at||'');
     if(COLLS.indexOf(r.coll)>-1)d[r.coll].push(r.data);
     else if(r.coll==='emp_pay')pay[r.id]=r.data;
     else if(r.coll==='meta'&&r.id==='settings')Object.assign(d.settings,r.data);
     else if(r.coll==='payroll'&&r.id==='fx')d.fx=r.data.v||{};
     else if(r.coll==='payroll'&&r.id==='payAdj')d.payAdj=r.data.v||{};
+    else if(r.coll==='payroll'&&r.id==='empPay')d.empPay=(r.data&&r.data.v)||{};
   });
   delete d.settings.pins;d.seeded=false;
-  d.employees.forEach(function(e){var p=pay[e.id];if(p){e.base=p.base;e.commissionPct=p.commissionPct;}});
+  d.employees.forEach(function(e){
+    /* newest of the two copies wins (an older portal version may still write only emp_pay) */
+    var t=(d.empPay||{})[e.id],p=pay[e.id],src=t||p;
+    if(t&&p&&at['emp_pay|'+e.id]>at['payroll|empPay'])src=p;
+    if(src){e.base=Number(src.base)||0;e.commissionPct=Number(src.commissionPct)||0;}
+  });
   d.loads.forEach(function(l){d.seq.load=Math.max(d.seq.load,lastNum(l.ref));});
   d.invoices.forEach(function(i){d.seq.invoice=Math.max(d.seq.invoice,lastNum(i.no));});
   d.payslips.forEach(function(p){d.seq.payslip=Math.max(d.seq.payslip,lastNum(p.no));});
@@ -1001,7 +1010,7 @@ function salesStats(agentId,r){
   var o={total:drv.length,added:0,Active:0,'In Loop':0,'Not Responding':0,Dead:0,activated:0,died:0,loads:0,fees:0,drivers:drv};
   var inR=function(iso){var x=dayOf(iso);return x&&x>=r.start&&x<=r.end;};
   drv.forEach(function(d){o[drvStatus(d)]++;if(inR(d.addedAt))o.added++;if(inR(d.activeAt))o.activated++;if(drvStatus(d)==='Dead'&&inR(d.deadAt))o.died++;});
-  db.loads.forEach(function(l){if(ids[l.driverId]&&['Delivered','Invoiced','Paid'].indexOf(l.status)>-1&&l.delivery>=r.start&&l.delivery<=r.end){o.loads++;o.fees+=loadFee(l);}});
+  db.loads.forEach(function(l){if(ids[l.driverId]&&['Delivered','Invoiced','Paid'].indexOf(l.status)>-1&&loadDay(l)>=r.start&&loadDay(l)<=r.end){o.loads++;o.fees+=loadFee(l);}});
   o.fees=r2(o.fees);return o;
 }
 function pSalesReports(){
@@ -1019,7 +1028,7 @@ function pSalesReports(){
     detail='<section class="panel"><header><div><h2>'+esc(a?a.name:'')+': drivers</h2><div class="muted small">'+plural(s.total,'driver')+' brought in · loads and fees for '+esc(r.label)+'</div></div><button class="btn sm" type="button" data-action="sr-agent" data-id="">Show all agents</button></header>'+
       (s.drivers.length?'<div class="tablewrap"><table style="min-width:860px"><thead><tr><th>Driver</th><th>Status</th><th>Dispatcher</th><th>Added</th><th class="num">Loads done (period)</th><th class="num">Dispatch fees (period)</th><th></th></tr></thead><tbody>'+
         s.drivers.filter(function(d){return !isDead(d);}).sort(function(x,y){return DSTATUS.indexOf(drvStatus(x))-DSTATUS.indexOf(drvStatus(y))||String(x.name).localeCompare(String(y.name));}).map(function(d){
-          var ls=doneLoads(d).filter(function(l){return l.delivery>=r.start&&l.delivery<=r.end;});
+          var ls=doneLoads(d).filter(function(l){return loadDay(l)>=r.start&&loadDay(l)<=r.end;});
           return '<tr'+(isDead(d)?' class="quiet"':'')+'><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier||'')+(d.mc?' · '+esc(d.mc):'')+'</span></div></td><td>'+stPill(drvStatus(d))+'</td><td>'+(d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):'<span class="pill p-delivered">Awaiting dispatcher</span>')+'</td><td class="small">'+(d.addedAt?fmtD(dayOf(d.addedAt)):'—')+'</td><td class="num">'+ls.length+'</td><td class="num">'+money(r2(sumBy(ls,loadFee)))+'</td><td><div class="rowact"><button class="btn sm" type="button" data-action="driver-info" data-id="'+d.id+'">Details</button></div></td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">This agent has not brought in any drivers yet.</div>')+'</section>';
   }
   return head('Sales reports','Drivers each sales agent brought in, and how they are doing · '+r.label)+
@@ -2136,7 +2145,7 @@ function dovReportOpen(id,ym){
   var d=x.d,st=x.st,s0=db.settings;
   var row=function(k,v){return '<div><b>'+esc(k)+'</b><span>'+v+'</span></div>';};
   var loadsTbl=x.ls.length?'<div class="tablewrap"><table class="tight" style="min-width:0;width:100%"><thead><tr><th>Load</th><th>Pickup</th><th>Delivery</th><th>Route</th><th>Status</th><th class="num">Loaded miles</th><th class="num">Deadhead miles</th><th class="num">Load rate</th></tr></thead><tbody>'+
-    x.ls.map(function(l){var counted=isDone(l)&&inRange(l.delivery,x.r);
+    x.ls.map(function(l){var counted=isDone(l)&&inRange(loadDay(l),x.r);
       return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(fmtD(l.pickup))+'</td><td>'+esc(fmtD(l.delivery))+'</td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td>'+pill(l.status)+'</td><td class="num">'+NUM.format(l.miles||0)+'</td><td class="num">'+NUM.format(l.deadhead||0)+'</td><td class="num">'+money(l.rate)+(counted?'':'<div class="muted small">not in revenue</div>')+'</td></tr>';}).join('')+
     '<tr class="total"><td colspan="5">Total</td><td class="num">'+NUM.format(st.loaded)+'</td><td class="num">'+NUM.format(st.dead)+'</td><td class="num">'+money(st.rev)+'</td></tr></tbody></table></div>':
     '<div class="empty">No loads for this driver in '+esc(x.r.label)+'.</div>';
@@ -2150,7 +2159,7 @@ function dovReportOpen(id,ym){
       '<div class="tablewrap"><table style="min-width:0;width:100%"><thead><tr><th class="num">Loads</th><th class="num">Delivered</th><th class="num">Loaded miles</th><th class="num">Deadhead miles</th><th class="num">Total miles</th><th class="num">Load revenue</th></tr></thead><tbody>'+
         '<tr><td class="num"><b>'+st.n+'</b></td><td class="num"><b>'+st.deliv+'</b></td><td class="num">'+NUM.format(st.loaded)+'</td><td class="num">'+NUM.format(st.dead)+'</td><td class="num"><b>'+NUM.format(x.total)+'</b></td><td class="num"><b>'+money(st.rev)+'</b></td></tr></tbody></table></div>'+
       '<h3 style="margin:14px 0 6px;font-size:1rem">Loads in '+esc(x.r.label)+'</h3>'+loadsTbl+
-      '<p class="muted small" style="margin:10px 0 0">Loads and miles count loads picked up or delivered in the month. Delivered and load revenue count loads delivered in the month. Generated '+esc(fmtD(TODAY))+'.</p>'+
+      '<p class="muted small" style="margin:10px 0 0">Every load counts in the month of its pickup date. Delivered and load revenue count those loads once they are delivered. Generated '+esc(fmtD(TODAY))+'.</p>'+
     '</div>',true);
 }
 function dovReportCsv(){
@@ -2160,7 +2169,7 @@ function dovReportCsv(){
     ['Loads','Delivered','Loaded miles','Deadhead miles','Total miles','Load revenue ($)'],
     [st.n,st.deliv,st.loaded,st.dead,x.total,r2(st.rev).toFixed(2)],[],
     ['Load','Pickup','Delivery','From','To','Status','Loaded miles','Deadhead miles','Load rate ($)','Counted in revenue']];
-  x.ls.forEach(function(l){rows.push([l.ref,l.pickup,l.delivery,l.origin,l.dest,l.status,l.miles||0,l.deadhead||0,r2(l.rate).toFixed(2),isDone(l)&&inRange(l.delivery,x.r)?'Yes':'No']);});
+  x.ls.forEach(function(l){rows.push([l.ref,l.pickup,l.delivery,l.origin,l.dest,l.status,l.miles||0,l.deadhead||0,r2(l.rate).toFixed(2),isDone(l)&&inRange(loadDay(l),x.r)?'Yes':'No']);});
   csvDownload('Driver report - '+(d.name||'driver')+' - '+x.r.label,rows);
   toast('Report downloaded');
 }
@@ -2348,7 +2357,7 @@ function openNoteTarget(n){
 }
 
 function blank(){
-  return {v:6,expenses:[],fx:{},payAdj:{},seeded:false,seq:{invoice:0,payslip:0,payrun:0,load:10000},
+  return {v:6,expenses:[],fx:{},payAdj:{},empPay:{},seeded:false,seq:{invoice:0,payslip:0,payrun:0,load:10000},
     settings:{timezone:'America/New_York',company:'ZULU Logistics',address:'Street address\nCity, ST 00000',phone:'',email:'',
       invTerms:7,payInstr:'Please pay the dispatch fee by ACH or check within the stated terms, referencing the invoice number.',
       pins:{admin:'1111',accountant:'2222'}},
@@ -2814,6 +2823,8 @@ function inWeek(s,w){return !!s&&s>=w.start&&s<=w.end;}
 function fmtShort(s){var p=parts(s);return new Date(p[0],p[1]-1,p[2]).toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 function weekLabel(w){return fmtShort(w.start)+' to '+fmtShort(w.end)+', '+w.end.slice(0,4);}
 function isDone(l){return l.status==='Delivered'||l.status==='Invoiced'||l.status==='Paid';}
+/* a load belongs to the month (or period) of its pickup date */
+function loadDay(l){return String((l&&(l.pickup||l.delivery))||'');}
 function onRoad(l,w){return l.status==='In transit'||(l.status==='Booked'&&(inWeek(l.pickup,w)||inWeek(l.delivery,w)));}
 function sumBy(a,f){return r2(a.reduce(function(s,x){return s+f(x);},0));}
 function plural(n,w){return n+' '+w+(n===1?'':'s');}
@@ -2840,7 +2851,7 @@ function pOverviewDispatcher(){
   var wk=mine.filter(function(l){return (cur&&l.status==='In transit')||inRange(l.pickup,r)||inRange(l.delivery,r);})
     .sort(function(a,b){return String(a.pickup).localeCompare(String(b.pickup));});
   var left=wk.filter(function(l){return l.status==='Booked'||l.status==='In transit';});
-  var done=mine.filter(function(l){return isDone(l)&&inRange(l.delivery,r);});
+  var done=mine.filter(function(l){return isDone(l)&&inRange(loadDay(l),r);});
   var sent=db.invoices.filter(function(i){return inRange(i.issued,r);});
   var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inRange(i.paidOn,r);});
   return head('Overview',r.label+(me?' · '+me.name:''),ovBar())+
@@ -2878,7 +2889,7 @@ function myComMonth(ym){var sl=db.payslips.find(function(p){return p.empId===ses
 /* loads delivered in the period whose invoice the driver has not paid yet: shown separately, not in gross */
 function myPendingPanel(from,to,pct,rate,label){
   var sales=session.role==='sales',slip=from.slice(8)==='01'&&to===lastDayOf(from.slice(0,7))?db.payslips.find(function(p){return p.empId===session.empId&&p.ym===from.slice(0,7);}):null;
-  var cs=comSet(session.empId,sales,from,to,slip||null),ls=cs.pending.slice().sort(function(a,b){return String(a.delivery).localeCompare(String(b.delivery));});
+  var cs=comSet(session.empId,sales,from,to,slip||null),ls=cs.pending.slice().sort(function(a,b){return loadDay(a).localeCompare(loadDay(b));});
   if(!ls.length)return '';
   var fees=0,com=0;
   var rows=ls.map(function(l){
@@ -2887,13 +2898,13 @@ function myPendingPanel(from,to,pct,rate,label){
     if(l.status==='Delivered')st='<span class="pill p-delivered">Not invoiced yet</span>';
     else if(inv)st=(invStatus(inv)==='Overdue'?'<span class="pill p-overdue">Overdue</span>':'<span class="pill p-sent">Invoice sent</span>')+'<div class="muted small">'+esc(inv.no||'')+(inv.due?' · due '+esc(fmtD(inv.due)):'')+'</div>';
     else st='<span class="pill p-sent">Invoice sent</span>';
-    return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(fmtD(l.delivery))+'</td><td>'+st+'</td><td class="num">'+money(f)+'</td><td class="num"><b>'+(rate?rs(Math.round(c*rate)):money(c))+'</b>'+(rate?'<div class="muted small">'+money(c)+'</div>':'')+'</td></tr>';}).join('');
-  return '<section class="panel" style="border-left:4px solid var(--warn)"><header><div><h2>Waiting for payment · '+plural(ls.length,'load')+'</h2><div class="muted small">Delivered in '+esc(label)+', but the driver has not paid the invoice yet. This commission is <b>not</b> in your gross pay above; it is added to your payroll once the invoice is paid.</div></div></header>'+
-    '<div class="tablewrap"><table style="min-width:680px"><thead><tr><th>Load</th><th>Driver</th><th>Delivered</th><th>Invoice</th><th class="num">Dispatch fee</th><th class="num">Your commission ('+pct+'%)</th></tr></thead><tbody>'+rows+
+    return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(fmtD(l.pickup))+'<div class="muted small">Drop-off '+esc(fmtD(l.delivery))+'</div></td><td>'+st+'</td><td class="num">'+money(f)+'</td><td class="num"><b>'+(rate?rs(Math.round(c*rate)):money(c))+'</b>'+(rate?'<div class="muted small">'+money(c)+'</div>':'')+'</td></tr>';}).join('');
+  return '<section class="panel" style="border-left:4px solid var(--warn)"><header><div><h2>Waiting for payment · '+plural(ls.length,'load')+'</h2><div class="muted small">Picked up in '+esc(label)+' and delivered, but the driver has not paid the invoice yet. This commission is <b>not</b> in your gross pay above; it is added to your payroll once the invoice is paid.</div></div></header>'+
+    '<div class="tablewrap"><table style="min-width:680px"><thead><tr><th>Load</th><th>Driver</th><th>Pickup</th><th>Invoice</th><th class="num">Dispatch fee</th><th class="num">Your commission ('+pct+'%)</th></tr></thead><tbody>'+rows+
     '<tr class="total"><td colspan="4">Waiting for payment</td><td class="num">'+money(r2(fees))+'</td><td class="num">'+(rate?rs(Math.round(com*rate)):money(r2(com)))+'</td></tr></tbody></table></div></section>';
 }
-function myMonth(ym){return mySums(function(l){return String(l.delivery).slice(0,7)===ym;},{ym:ym});}
-function myRange(a,b){return mySums(function(l){var d=String(l.delivery||'');return d>=a&&d<=b;},{});}
+function myMonth(ym){return mySums(function(l){return loadDay(l).slice(0,7)===ym;},{ym:ym});}
+function myRange(a,b){return mySums(function(l){var d=loadDay(l);return d>=a&&d<=b;},{});}
 function isMyLoad(l){return session.role==='sales'?((getDrv(l.driverId)||{}).salesAgentId===session.empId):l.dispatcherId===session.empId;}
 /* ---------- my salary (dispatcher / sales agent), same formula as Payroll ---------- */
 var myPayCache={};
@@ -3044,10 +3055,10 @@ function pMyReport(){
   var custom=ui.mrMode==='Custom Range',cFrom=ui.mrFrom||TODAY.slice(0,7)+'-01',cTo=ui.mrTo||TODAY;
   var ms=custom?myRange(cFrom,cTo):myMonth(ym),period=custom?fmtD(cFrom)+' to '+fmtD(cTo):ymLabel(ym);
   var set={};set[TODAY.slice(0,4)]=1;set[yr]=1;
-  db.loads.forEach(function(l){if(isMyLoad(l)&&l.delivery)set[String(l.delivery).slice(0,4)]=1;});
+  db.loads.forEach(function(l){if(isMyLoad(l)&&loadDay(l))set[loadDay(l).slice(0,4)]=1;});
   var years=Object.keys(set).sort().reverse();
-  var rows=ms.loads.slice().sort(function(a,b){return String(b.delivery).localeCompare(String(a.delivery));}).map(function(l){
-    return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(brokerName(l))+'</td><td>'+fmtD(l.delivery)+'</td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(loadFee(l))+'</td></tr>';}).join('');
+  var rows=ms.loads.slice().sort(function(a,b){return loadDay(b).localeCompare(loadDay(a));}).map(function(l){
+    return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(brokerName(l))+'</td><td>'+fmtD(l.pickup)+'<div class="muted small">Drop-off '+fmtD(l.delivery)+'</div></td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(loadFee(l))+'</td></tr>';}).join('');
   var months=[];for(var m=1;m<=12;m++)months.push(myMonth(yr+'-'+pad(m)));
   var maxF=Math.max.apply(null,months.map(function(x){return x.fees;}).concat([1]));
   var tot={count:0,rev:0,fees:0,miles:0};
@@ -3068,7 +3079,7 @@ function pMyReport(){
     statTile('Dispatch fees',money(ms.fees),yourLoads)+
     statTile('Miles',NUM.format(ms.miles),NUM.format(ms.deadhead)+' deadhead miles')+
   '</div>'+
-  '<section class="panel"><header><h2>'+(custom?'Loads delivered in this range':'Loads delivered this month')+'</h2></header>'+(rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Driver</th><th>Broker</th><th>Delivered</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No deliveries in this '+(custom?'date range':'month')+'.</div>')+'</section></div>'+
+  '<section class="panel"><header><h2>'+(custom?'Loads delivered in this range':'Loads delivered this month')+'</h2></header>'+(rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Driver</th><th>Broker</th><th>Pickup</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No deliveries in this '+(custom?'date range':'month')+'.</div>')+'</section></div>'+
   '<div class="rsec"><div class="pagehead"><div><h2>Year</h2><div class="sub">January to December '+esc(yr)+'</div></div>'+
     '<label class="field" style="grid-template-columns:auto 120px;align-items:center;gap:10px"><span>Year</span><select id="reportYear">'+years.map(function(y){return '<option value="'+y+'"'+(y===yr?' selected':'')+'>'+y+'</option>';}).join('')+'</select></label></div>'+
   '<div class="stats">'+
@@ -3088,8 +3099,8 @@ function rangeOf(p,date,month){
   return {p:p,start:month+'-01',end:month+'-'+pad(last),label:ymLabel(month)};
 }
 function driverStats(dr,r){
-  var act=db.loads.filter(function(l){return l.driverId===dr.id&&(inRange(l.pickup,r)||inRange(l.delivery,r));});
-  var done=db.loads.filter(function(l){return l.driverId===dr.id&&isDone(l)&&inRange(l.delivery,r);});
+  var act=db.loads.filter(function(l){return l.driverId===dr.id&&inRange(loadDay(l),r);});
+  var done=db.loads.filter(function(l){return l.driverId===dr.id&&isDone(l)&&inRange(loadDay(l),r);});
   return {dr:dr,act:act,done:done,n:act.length,deliv:done.length,
     loaded:act.reduce(function(a,l){return a+l.miles;},0),dead:act.reduce(function(a,l){return a+(l.deadhead||0);},0),
     rev:sumBy(done,function(l){return l.rate;}),fees:sumBy(done,loadFee)};
@@ -3129,7 +3140,7 @@ function pDriverOv(){
     statTile('Total miles',NUM.format(t.loaded+t.dead),NUM.format(t.dead)+' deadhead miles')+
     statTile('Dispatch fees',money(r2(t.fees)),'on '+money(r2(t.rev))+' load revenue')+
   '</div>'+
-  '<section class="panel"><header><div><h2>'+(mine?'My drivers':'Each driver')+'</h2><div class="muted small">'+(mine?'Drivers assigned to you as their dispatcher. ':'')+'Miles count loads picked up or delivered in the period. Revenue and fees count loads delivered in the period.</div></div>'+
+  '<section class="panel"><header><div><h2>'+(mine?'My drivers':'Each driver')+'</h2><div class="muted small">'+(mine?'Drivers assigned to you as their dispatcher. ':'')+'Every load counts in the period of its pickup date. Revenue and fees count those loads once they are delivered.</div></div>'+
       '<button class="btn sm" type="button" data-action="dov-export"'+(list.length?'':' disabled')+'>Export table (Excel)</button></header>'+
     '<div class="toolbar"><input id="dovSearch" class="searchbox" type="search" placeholder="Search driver name, company, MC or phone" value="'+esc(ui.dovQ||'')+'" aria-label="Search drivers"><button class="btn sm" type="button" data-action="dov-clear"'+(dq?'':' hidden')+'>Clear</button>'+(dq?'<span class="muted small">'+plural(list.length,'driver')+' found</span>':'')+'</div>'+
     (dq&&!rows?'<div class="empty">No driver matches "'+esc(ui.dovQ)+'".</div>':'')+
@@ -3144,7 +3155,7 @@ function driverDetail(id){
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">'+esc(brokerName(l))+'</span></div></td><td>'+fmtD(l.pickup)+'<div class="muted small">to '+fmtD(l.delivery)+'</div></td><td class="num">'+NUM.format(l.miles)+(l.deadhead?'<div class="muted small">+'+NUM.format(l.deadhead)+' deadhead</div>':'')+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(loadFee(l))+'</td><td>'+pill(l.status)+'</td></tr>';}).join('');
   openModal(sheetHead(d.name+' · '+r.label)+
     '<div class="muted">'+esc(d.carrier)+' · '+esc(d.mc)+(d.dispatcherId?' · Dispatcher '+esc(nm(getEmp(d.dispatcherId))):'')+'</div>'+
-    '<div class="tablewrap">'+(rows?'<table style="min-width:620px"><thead><tr><th>Load</th><th>Route</th><th>Dates</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="empty">No loads for this driver in this period.</div>')+'</div>',true);
+    '<div class="tablewrap">'+(rows?'<table style="min-width:620px"><thead><tr><th>Load</th><th>Route</th><th>Pickup / Drop-off</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th><th>Status</th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="empty">No loads for this driver in this period.</div>')+'</div>',true);
 }
 
 /* ---------- admin overview ---------- */
@@ -3194,7 +3205,7 @@ function dual(usd,rsv){return money(usd)+' · '+rs(rsv);}
 function pOverviewAdmin(){
   var r=ovRange();
   var loads=db.loads.filter(function(l){return inRange(l.pickup,r);});
-  var sales=db.loads.filter(function(l){return isDone(l)&&inRange(l.delivery,r);});
+  var sales=db.loads.filter(function(l){return isDone(l)&&inRange(loadDay(l),r);});
   var sent=db.invoices.filter(function(i){return inRange(i.issued,r);});
   var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inRange(i.paidOn,r);});
   var pend=sent.filter(function(i){return i.status==='Sent';});
@@ -3213,7 +3224,7 @@ function pOverviewAdmin(){
   var yr=r.start.slice(0,4),months=[];
   for(var m=1;m<=12;m++){
     var ym=yr+'-'+pad(m);
-    var ls=db.loads.filter(function(l){return isDone(l)&&String(l.delivery).slice(0,7)===ym;});
+    var ls=db.loads.filter(function(l){return isDone(l)&&loadDay(l).slice(0,7)===ym;});
     months.push({m:m,ym:ym,n:ls.length,fees:sumBy(ls,loadFee)});
   }
   var maxF=Math.max.apply(null,months.map(function(x){return x.fees;}).concat([1]));
@@ -3297,7 +3308,7 @@ function loadsTableHtml(){
   var rows=loadRows();
   if(!rows.length)return '<div class="empty">No loads match. Add one with the button above.</div>';
   var edit=can('editLoads');
-  return '<div class="tablewrap"><table><thead><tr><th>Load</th><th>Driver</th><th>Dispatcher</th><th>Broker</th><th>Route</th><th>Dates</th><th>Booked</th><th class="num">Miles</th><th class="num">Load rate</th><th>Status / paperwork</th>'+(edit?'<th></th>':'')+'</tr></thead><tbody>'+
+  return '<div class="tablewrap"><table><thead><tr><th>Load</th><th>Driver</th><th>Dispatcher</th><th>Broker</th><th>Route</th><th>Pickup / Drop-off</th><th class="num">Miles</th><th class="num">Load rate</th><th>Status / paperwork</th>'+(edit?'<th></th>':'')+'</tr></thead><tbody>'+
   rows.map(function(l){
     var locked=l.status==='Invoiced'||l.status==='Paid';
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td>'+
@@ -3305,8 +3316,7 @@ function loadsTableHtml(){
       '<td>'+esc(nm(getEmp(l.dispatcherId)))+'</td>'+
       '<td>'+esc(brokerName(l))+'</td>'+
       '<td><div class="stack"><span>'+esc(l.origin)+'</span><span class="muted small">to '+esc(l.dest)+'</span></div></td>'+
-      '<td><div class="stack"><span>'+fmtD(l.pickup)+'</span><span class="muted small">to '+fmtD(l.delivery)+'</span></div></td>'+
-      '<td>'+(bookedOn(l)?fmtD(bookedOn(l)):'—')+'</td>'+
+      '<td><div class="stack"><span>Pickup '+fmtD(l.pickup)+'</span><span class="muted small">Drop-off '+fmtD(l.delivery)+'</span></div></td>'+
       '<td class="num">'+NUM.format(l.miles)+(l.deadhead?'<div class="muted small">+'+NUM.format(l.deadhead)+' deadhead</div>':'')+'</td>'+
       '<td class="num">'+money(l.rate)+'</td>'+
       '<td><div class="stack" style="gap:4px;justify-items:start">'+pill(l.status)+paperworkCell(l)+'</div></td>'+
@@ -3632,7 +3642,7 @@ function comPaidAlready(l,docs){
 }
 /* the date a load's commission is counted on, or '' while it is unpaid or already paid out */
 function comDate(l,docs){
-  var del=String(l.delivery||'');
+  var del=loadDay(l);
   if(!del||comPaidAlready(l,docs))return '';
   var pd=loadPaidOn(l);if(!pd)return '';
   if(!docAt(docs,del))return del;
@@ -3648,9 +3658,9 @@ function comSet(empId,agent,from,to,selfDoc){
   var inRange=function(d){return !!d&&d>=from&&d<=to;};
   db.loads.forEach(function(l){
     if(!mine(l)||!isDone(l))return;
-    var del=String(l.delivery||''),d='';
+    var del=loadDay(l),d='',delOld=String(l.delivery||'');
     if(self&&self.ids){if(self.ids.indexOf(l.id)>-1){var pd=loadPaidOn(l);d=inRange(del)?del:(inRange(pd)?pd:from);}}
-    else if(self&&!self.ids){if(inRange(del))d=del;}
+    else if(self&&!self.ids){if(inRange(delOld))d=delOld;}
     else{d=comDate(l,docs);if(!inRange(d))d='';}
     if(d){out.loads.push(l);out.dates[l.id]=d;if(del<from)out.late.push(l);return;}
     if(inRange(del)&&l.status!=='Paid'&&!comPaidAlready(l,docs))out.pending.push(l);
@@ -3799,7 +3809,7 @@ function pPayroll(){
   '<section class="panel paysec" id="secSlips"><header><div><h2>All Issued Payslips</h2><div class="muted small">Monthly payslips and custom-period payments. Issued records keep their amounts even if pay terms change later.</div></div></header>'+
     '<div class="toolbar"><input id="slipSearch" class="searchbox" type="search" placeholder="Search employee, number or month" value="'+esc(ui.slipQ)+'" aria-label="Search issued payslips"></div>'+
     '<div id="slipList">'+slipListHtml()+'</div></section>'+
-  '<p class="muted small" style="margin:0">Commission counts only once the driver has paid the invoice for a load. Each load belongs to the month it was delivered; if the driver pays after that month\'s payslip was issued, the commission is added to the next payroll as a late payment. Dispatchers earn on the loads they dispatched; sales agents on loads from drivers they signed. Dispatchers have no base salary, only a commission percentage. In custom date range payroll, base pay is each person\'s fixed base amount and never changes with the dates you pick (hourly staff are paid for the hours entered). Net pay is base plus commission, less any advance and fines.</p>';
+  '<p class="muted small" style="margin:0">Commission counts only once the driver has paid the invoice for a load. Each load belongs to the month of its pickup date (it must be delivered); if the driver pays after that month\'s payslip was issued, the commission is added to the next payroll as a late payment. Dispatchers earn on the loads they dispatched; sales agents on loads from drivers they signed. Dispatchers have no base salary, only a commission percentage. In custom date range payroll, base pay is each person\'s fixed base amount and never changes with the dates you pick (hourly staff are paid for the hours entered). Net pay is base plus commission, less any advance and fines.</p>';
 }
 function adjForm(empId){
   var e=getEmp(empId);if(!e)return;
@@ -3944,7 +3954,7 @@ function rgRowsHtml(r){
 }
 function rangePanelHtml(){
   var r=curRg(),t=rgRowsHtml(r);
-  return '<section class="panel" id="rgPanel"><header><div><h2>Custom date range payroll</h2><div class="muted small">Pick any period. Base pay is each person\'s fixed base amount and does not change with the dates; commission is worked out from loads delivered in the period whose invoices are paid, plus late payments for earlier loads.</div></div>'+
+  return '<section class="panel" id="rgPanel"><header><div><h2>Custom date range payroll</h2><div class="muted small">Pick any period. Base pay is each person\'s fixed base amount and does not change with the dates; commission is worked out from delivered loads picked up in the period whose invoices are paid, plus late payments for earlier loads.</div></div>'+
     '<button class="btn primary" type="button" data-action="rg-issue-all"'+(t.payable?'':' disabled')+'>Issue all payments ('+t.payable+')</button></header>'+
     '<div class="toolbar"><div class="chips">'+rgChips()+'</div></div>'+
     '<div class="toolbar"><label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>Start date</span>'+dateInput('rgFrom','',r.from,'date')+'</label>'+
@@ -4158,7 +4168,7 @@ function teamSection(kind,plural,blurb){
   var list=staff(kind);
   var rows=list.map(function(e){
     var n=kind==='Sales agent'?db.drivers.filter(function(x){return x.salesAgentId===e.id;}).length:db.loads.filter(function(l){return l.dispatcherId===e.id;}).length;
-    return '<tr><td><b>'+esc(e.name)+'</b></td><td class="num">'+n+'</td>'+(kind==='Dispatcher'?'':'<td class="num">'+rs(e.base)+'</td>')+'<td class="num">'+e.commissionPct+'%</td>'+
+    return '<tr><td><b>'+esc(e.name)+'</b></td><td class="num">'+n+'</td>'+(kind==='Dispatcher'?'':'<td class="num">'+rs(e.base)+'</td>')+'<td class="num">'+(e.commissionPct==null||e.commissionPct===''||isNaN(Number(e.commissionPct))?'<span class="pill p-overdue">Not set</span>':Number(e.commissionPct)+'%')+'</td>'+
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="edit-emp" data-id="'+e.id+'">Edit</button><button class="btn sm danger" type="button" data-action="delete-emp" data-id="'+e.id+'">Delete</button></div></td></tr>';}).join('');
   return '<section class="panel"><header><div><h2>'+plural+'</h2><div class="muted small">'+blurb+'</div></div><button class="btn primary sm" type="button" data-action="new-emp" data-kind="'+kind+'">Add '+kind.toLowerCase()+'</button></header>'+
     (rows?'<div class="tablewrap"><table><thead><tr><th>Name</th><th class="num">'+(kind==='Sales agent'?'Drivers signed':'Loads dispatched')+'</th>'+(kind==='Dispatcher'?'':'<th class="num">Base / month (Rs)</th>')+'<th class="num">Default commission</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No '+plural.toLowerCase()+' yet.</div>')+'</section>';
