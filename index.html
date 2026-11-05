@@ -937,7 +937,7 @@ function driverInfo(id){
     '<div class="chips">'+stPill(st)+(awaitingDisp(d)?'<span class="pill p-delivered">Awaiting dispatcher</span>':'')+'</div>'+
     '<div class="doc nowm" style="padding:14px"><div class="meta">'+
       row('Company',esc(d.carrier||'—'))+row('MC number','<span class="mono">'+esc(d.mc||'—')+'</span>')+row('Dispatch fee',d.feePct!=null&&d.feePct!==''?esc(String(d.feePct))+'% of each load rate':'—')+row('Phone',esc(d.phone||'—'))+row('Email',esc(d.email||'—'))+
-      row('Truck type',esc(d.truckType||'—'))+row('Weight capacity',d.weightCap?NUM.format(d.weightCap)+' lbs':'—')+row('ZIP code',esc(d.zip||'—'))+
+      row('Truck type',esc(d.truckType||'—'))+row('Truck length',d.truckLen?esc(String(d.truckLen))+' ft':'—')+row('Weight capacity',d.weightCap?NUM.format(d.weightCap)+' lbs':'—')+row('ZIP code',esc(d.zip||'—'))+
       row('Accessories',accList(d).length?esc(accList(d).join(', ')):'—')+
       row('Sales agent',esc(d.salesAgentId?nm(getEmp(d.salesAgentId)):'—'))+row('Dispatcher',esc(d.dispatcherId?nm(getEmp(d.dispatcherId)):'Not assigned yet'))+
       row('Added',d.addedAt?fmtD(dayOf(d.addedAt))+(d.addedBy?' by '+esc(d.addedBy):''):'—')+
@@ -979,6 +979,7 @@ function salesDriverForm(d,pre){
     field('Phone number','phone',d.phone,{type:'tel',required:true})+
     field('Email address','email',d.email||'',{type:'email'})+
     field('Truck type','truckType',d.truckType||'',{type:'select',options:[['','Choose…']].concat(TRUCK_TYPES)})+
+    field('Truck length (ft)','truckLen',d.truckLen||'',{type:'number',min:1,max:100,step:'1',inputmode:'numeric',required:isNew})+
     field('Weight capacity (lbs)','weightCap',d.weightCap||'',{type:'number',min:0,step:'1',inputmode:'numeric'})+
     field('ZIP code','zip',d.zip||'',{inputmode:'numeric',hint:'Where the driver is based.'})+
     accChecks(d)+
@@ -987,12 +988,16 @@ function salesDriverForm(d,pre){
       :'<p class="small muted full" style="margin:0">To add or replace documents, use the Documents button.</p>')+
     '<div class="formfoot"><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit" id="salesSave">'+(isNew?'Add driver':'Save changes')+'</button></div></form>',true);
 }
+function truckLenOf(v){var n=Math.round(Number(String(v==null?'':v).trim()));return n>0&&n<=100?n:'';}
 function readAcc(f,dd){var a=[];ACCESSORIES.forEach(function(x,i){if(dd['acc_'+i])a.push(x);});return a;}
 async function saveSalesDriver(f){
   var d=formData(f),old=d.id?getDrv(d.id):null;
   var rec={mc:String(d.mc||'').trim(),name:String(d.name||'').trim(),carrier:String(d.carrier||'').trim(),phone:String(d.phone||'').trim(),email:String(d.email||'').trim(),
-    truckType:d.truckType||'',weightCap:d.weightCap?Math.round(Number(d.weightCap)):'',zip:String(d.zip||'').trim(),accessories:readAcc(f,d),accOther:String(d.accOther||'').trim(),notes:String(d.notes||'').trim()};
+    truckType:d.truckType||'',truckLen:truckLenOf(d.truckLen),weightCap:d.weightCap?Math.round(Number(d.weightCap)):'',zip:String(d.zip||'').trim(),accessories:readAcc(f,d),accOther:String(d.accOther||'').trim(),notes:String(d.notes||'').trim()};
   if(!rec.mc||!rec.name||!rec.carrier||!rec.phone){toast('MC number, driver name, company and phone are required.');return;}
+  if(String(d.truckLen||'').trim()&&!rec.truckLen){toast('Enter the truck length in feet, for example 40.');return;}
+  if(!old&&!rec.truckLen){toast('Enter the truck length (ft). A new driver cannot be added without it.');return;}
+  if(old&&!rec.truckLen&&old.truckLen)rec.truckLen=old.truckLen;
   var pct=Number(String(d.feePct==null?'':d.feePct).replace('%','').trim());
   if(String(d.feePct==null?'':d.feePct).trim()===''||!isFinite(pct)||pct<=0||pct>100){toast('Enter the dispatch fee as a percentage between 0.1 and 100.');return;}
   rec.feePct=Math.round(pct*100)/100;
@@ -3505,6 +3510,7 @@ function driverForm(d){
     (d.id&&d.addedByRole==='sales'?'<p class="small full" style="margin:0;padding:8px 10px;background:var(--bg-2,#f4f6f8);border-radius:6px">Added by <b>'+esc(nm(getEmp(d.salesAgentId)))+'</b>'+(d.addedAt?' on '+fmtD(dayOf(d.addedAt)):'')+'. Check the details and documents, then choose a dispatcher. The dispatcher is notified and gets access to everything the sales agent submitted.</p>':'')+
     field('Status','driverStatus',d.id?drvStatus(d):'In Loop',{type:'select',options:DSTATUS,hint:'Active needs a completed load. Not Responding: the driver is not answering. Dead removes the driver from dispatchers\' lists but keeps every record.'})+
     field('Truck type','truckType',d.truckType||'',{type:'select',options:[['','—']].concat(TRUCK_TYPES)})+
+    field('Truck length (ft)','truckLen',d.truckLen||'',{type:'number',min:1,max:100,step:'1',required:!d.id,hint:d.id?'':'Required for a new driver.'})+
     field('Weight capacity (lbs)','weightCap',d.weightCap||'',{type:'number',min:0,step:'1'})+
     field('ZIP code','zip',d.zip||'',{})+
     field('Accessories','accText',accList(d).join(', '),{hint:'Separate with commas.'})+
@@ -5088,6 +5094,11 @@ var forms={
   },
   'driver':function(f){
     var d=formData(f),rec={name:d.name.trim(),carrier:d.carrier.trim(),mc:d.mc.trim(),phone:d.phone.trim(),email:(d.email||'').trim(),feePct:numv(d.feePct),salesAgentId:d.salesAgentId||'',dispatcherId:d.dispatcherId||''};
+    if(d.truckLen!==undefined){
+      if(String(d.truckLen||'').trim()&&!truckLenOf(d.truckLen)){toast('Enter the truck length in feet, for example 40.');return;}
+      if(!d.id&&!truckLenOf(d.truckLen)){toast('Enter the truck length (ft). A new driver cannot be added without it.');return;}
+      rec.truckLen=truckLenOf(d.truckLen);
+    }
     if(d.truckType!==undefined){
       var acc=String(d.accText||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
       rec.truckType=d.truckType||'';rec.weightCap=d.weightCap?Math.round(Number(d.weightCap)):'';rec.zip=String(d.zip||'').trim();rec.notes=String(d.notes||'').trim();
