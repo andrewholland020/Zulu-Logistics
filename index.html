@@ -191,6 +191,30 @@ textarea{resize:vertical;min-height:70px}
 .form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px}
 .form .full{grid-column:1/-1}
 .field{display:grid;gap:4px;min-width:0}
+.rcnote{margin-top:2px;line-height:1.45}
+.bname{background:none;border:0;padding:0;font:inherit;font-weight:700;color:inherit;cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.bname:hover{color:var(--info);text-decoration-color:currentColor}
+.bname.plain{font-weight:inherit}
+.more{display:inline-block;margin-left:6px;font-size:.75rem;font-weight:600;color:var(--info);white-space:nowrap}
+#modal.side{place-items:stretch end;padding:0}
+#modal.side .sheet{width:min(780px,100%);max-width:780px;min-height:100%;margin:0;border-radius:0;border-width:0 0 0 1px;align-content:start;grid-template-columns:minmax(0,1fr)}
+#bpBody{min-width:0;display:grid;gap:10px}
+#bpBody h3{margin:6px 0 0}
+.bpsum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.bpsum>div{border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:grid;gap:2px}
+.bpsum b{font-size:1.15rem}
+.bcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.bcard{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--surface);color:inherit;font:inherit;text-align:left;cursor:pointer;display:grid;gap:3px;min-width:0}
+.bcard:hover{border-color:var(--info)}
+.bcard[aria-pressed=true]{border-color:var(--info);box-shadow:0 0 0 2px var(--info-soft);background:var(--info-soft)}
+.bcard .small{overflow-wrap:anywhere}
+.bcard.nosave{border-style:dashed}
+@media (max-width:760px){.bpsum{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.rcnote label{display:flex;gap:6px;align-items:flex-start;margin-top:4px;font-weight:600}
+fieldset.bcontact{grid-column:1/-1;border:1px solid var(--line);border-radius:6px;padding:10px 12px 12px;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+fieldset.bcontact legend{font-weight:700;font-size:.85rem;padding:0 4px}
+@media (max-width:760px){fieldset.bcontact{grid-template-columns:minmax(0,1fr)}}
+
 .field>span{font-size:.78rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
 .field small{color:var(--muted);font-size:.8rem}
 .formfoot{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;padding-top:6px}
@@ -2604,14 +2628,14 @@ function toast(msg){
   clearTimeout(toast._t);toast._t=setTimeout(function(){t.hidden=true;},2400);
 }
 function openModal(html,wide){
-  var m=$('modal');
+  var m=$('modal');m.classList.remove('side');
   m.innerHTML='<div class="scrim" data-action="close-modal"></div><div class="sheet'+(wide?' wide':'')+'" role="dialog" aria-modal="true">'+html+'</div>';
   var wasHidden=m.hidden;m.hidden=false;
   if(wasHidden&&isMob()){try{history.pushState({z:'modal'},'');}catch(e){}}
   var f=m.querySelector('input:not([type=hidden]),select,textarea');
   if(f&&!wide&&!isMob())f.focus();
 }
-function closeModal(){var m=$('modal'),was=!m.hidden;m.hidden=true;m.innerHTML='';
+function closeModal(){var m=$('modal'),was=!m.hidden;m.hidden=true;m.innerHTML='';m.classList.remove('side');
   if(was&&!histPopping&&isMob()&&history.state&&history.state.z==='modal'){histSkip=true;try{history.back();}catch(e){}}}
 function confirmTwice(el,txt){
   if(el.dataset.armed==='1')return true;
@@ -3297,7 +3321,7 @@ function loadsTableHtml(){
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td>'+
       '<td>'+esc(nm(getDrv(l.driverId)))+'</td>'+
       '<td>'+esc(nm(getEmp(l.dispatcherId)))+'</td>'+
-      '<td>'+esc(brokerName(l))+'</td>'+
+      '<td>'+brokerBtn(l,true)+'</td>'+
       '<td><div class="stack"><span>'+esc(l.origin)+'</span><span class="muted small">to '+esc(l.dest)+'</span></div></td>'+
       '<td><div class="stack"><span>Pickup '+fmtD(l.pickup)+'</span><span class="muted small">Drop-off '+fmtD(l.delivery)+'</span></div></td>'+
       '<td class="num">'+NUM.format(l.miles)+(l.deadhead?'<div class="muted small">+'+NUM.format(l.deadhead)+' deadhead</div>':'')+'</td>'+
@@ -3343,6 +3367,55 @@ function rcFieldHtml(l){
     '<input type="file" name="rcFile" id="loadRcFile" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,.doc,.docx,application/pdf,image/*">'+
     '<small>'+(have.length?'Already uploaded: '+have.map(function(d){return esc(d.file_name);}).join(', ')+'. ':'')+'PDF or photo, up to 25 MB. It is saved with the load when you click Save load.</small></label>';
 }
+/* ---------- brokers: agents (contacts) of a broker company ---------- */
+function normMc(v){return String(v||'').replace(/[^0-9]/g,'');}
+function lc(v){return String(v||'').trim().toLowerCase();}
+function digitsOnly(v){return String(v||'').replace(/[^0-9]/g,'');}
+/* the agents of a broker; an older broker without a list has its one saved contact as its agent */
+function agentsOf(c){
+  if(!c)return [];
+  if(Array.isArray(c.agents))return c.agents;
+  return (c.email||c.contact||c.phone)?[{id:'ag_'+c.id,name:c.contact||'',email:c.email||'',phone:c.phone||'',ext:c.ext||'',addedAt:''}]:[];
+}
+function ensureAgents(c){if(!Array.isArray(c.agents))c.agents=agentsOf(c).map(function(a){return Object.assign({},a);});return c.agents;}
+function findBroker(name,mc){
+  var m=normMc(mc),n=lc(name);
+  return (m&&db.customers.find(function(c){return normMc(c.mc)===m;}))||(n&&db.customers.find(function(c){return lc(c.name)===n;}))||null;
+}
+function findAgent(c,email){var e=lc(email);return e?agentsOf(c).find(function(a){return lc(a.email)===e;})||null:null;}
+function agentChanges(a,phone,ext){
+  var out=[];
+  if(a&&phone&&a.phone&&digitsOnly(a.phone)!==digitsOnly(phone))out.push('phone '+a.phone+' → '+phone);
+  if(a&&ext&&a.ext&&digitsOnly(a.ext)!==digitsOnly(ext))out.push('ext '+a.ext+' → '+ext);
+  return out;
+}
+
+/* ---------- Add load: broker contact (agent) ---------- */
+var rcState=null;
+function loadFormEl(){return document.querySelector('form[data-form=load]');}
+function initLoadForm(){
+  var f=loadFormEl();if(!f)return;
+  rcState={upd:false};
+  var touched=function(e){
+    var t=e.target;if(!t)return;
+    if(t.id==='rcUpd'){rcState.upd=t.checked;return;}
+    if(/^(brokerName|agentName|agentEmail|agentPhone|agentExt)$/.test(t.name||''))rcNote();
+  };
+  f.addEventListener('input',touched);f.addEventListener('change',touched);
+  rcNote();
+}
+/* a short line in the Broker contact section: is the broker / agent already saved, and any phone or ext change */
+function rcNote(){
+  var el=$('rcNote'),f=loadFormEl();if(!el||!f||!rcState)return;
+  var v=function(n){var x=f.querySelector('[name='+n+']');return x?String(x.value||'').trim():'';};
+  var name=v('brokerName'),bro=name?findBroker(name,v('brokerMc')):null,parts=[];
+  var email=v('agentEmail'),ag=bro&&email?findAgent(bro,email):null,chg=ag?agentChanges(ag,v('agentPhone'),v('agentExt')):[];
+  if(email)parts.push(ag?'This agent is already saved under '+esc(bro.name)+'.':'This agent will be added'+(bro?' under '+esc(bro.name):'')+'.');
+  else if(name&&(v('agentName')||v('agentPhone')))parts.push('No agent email, so the load is linked to the broker only.');
+  var html=parts.join(' ');
+  if(chg.length)html+='<label><input type="checkbox" id="rcUpd"'+(rcState.upd?' checked':'')+'> Update the saved agent: '+esc(chg.join(', '))+'. Leave unticked to keep the saved details.</label>';
+  el.innerHTML=html;el.hidden=!html;
+}
 function loadForm(l){
   l=l||{ref:'L-'+(db.seq.load+1),driverId:(db.drivers[0]||{}).id||'',customerId:'',dispatcherId:defaultDispatcher((db.drivers[0]||{}).id),origin:'',dest:'',pickup:TODAY,delivery:addDays(TODAY,1),miles:'',deadhead:0,rate:'',extras:0,status:'Booked',invoiceId:''};
   var isNew=!l.id;
@@ -3351,6 +3424,7 @@ function loadForm(l){
     openModal(sheetHead('Add load')+'<p>Add at least one driver first, so the load knows who hauls it.</p>');return;
   }
   var stOpts=locked?[l.status]:['Booked','In transit','Delivered'];
+  var ag=l.agentId?agentsOf(getCust(l.customerId)||{}).find(function(a){return a.id===l.agentId;}):null;ag=ag||{};
   openModal(sheetHead(isNew?'Add load':(locked?'Load '+l.ref:'Edit load '+l.ref))+
   '<form class="form" data-form="load"><input type="hidden" name="id" value="'+esc(l.id||'')+'">'+
     field('Load number','ref',l.ref,{required:true})+
@@ -3358,6 +3432,14 @@ function loadForm(l){
     field('Driver','driverId',l.driverId,{type:'select',options:db.drivers.filter(function(d){return !isDead(d)||d.id===l.driverId;}).map(function(d){return [d.id,d.name+' · '+d.carrier+(isDead(d)?' (Dead)':'')];}),disabled:locked})+
     field('Broker company','brokerName',(getCust(l.customerId)||{}).name||l.brokerName||'',{required:true,list:'brokerList',hint:'Pick an existing broker or type a new company name. A new name is added to Brokers automatically.'})+
     '<datalist id="brokerList">'+db.customers.map(function(c){return '<option value="'+esc(c.name)+'">'+esc(c.contact||'')+'</option>';}).join('')+'</datalist>'+
+    '<input type="hidden" name="brokerMc" id="f_brokerMc" value="'+esc(l.brokerMc||(getCust(l.customerId)||{}).mc||'')+'">'+
+    '<fieldset class="bcontact"><legend>Broker contact</legend>'+
+      field('Agent name','agentName',ag.name||'',{})+
+      field('Agent email','agentEmail',ag.email||'',{type:'email'})+
+      field('Phone','agentPhone',ag.phone||'',{type:'tel'})+
+      field('Ext','agentExt',ag.ext||'',{inputmode:'numeric'})+
+      '<div id="rcNote" class="rcnote small" style="grid-column:1/-1" aria-live="polite" hidden></div>'+
+    '</fieldset>'+
     field('Dispatched by','dispatcherId',l.dispatcherId,{type:'select',options:dispatcherOptions(),hint:session.role==='dispatcher'?'Every dispatcher is listed. Defaults to you.':'Earns commission on this load.',disabled:locked})+
     field('Loaded miles','miles',l.miles,{type:'number',min:0,required:true,inputmode:'numeric'})+
     field('Deadhead miles','deadhead',l.deadhead||0,{type:'number',min:0,inputmode:'numeric',hint:'Empty miles driven to reach the pickup.'})+
@@ -3368,8 +3450,9 @@ function loadForm(l){
     field('Load rate (USD)','rate',l.rate,{type:'number',step:'0.01',min:0,required:true,hint:'Total agreed with the customer. The driver\'s dispatch fee is deducted from this on the invoice.'})+
     (locked?'':rcFieldHtml(l))+
     '<div class="formfoot">'+(!isNew&&canDelLoad(l)?'<button class="btn danger" type="button" data-action="delete-load" data-id="'+l.id+'">Delete</button>':'')+
-    '<button class="btn" type="button" data-action="close-modal">Cancel</button>'+(locked?'':'<button class="btn primary" type="submit">Save load</button>')+'</div>'+
+    '<button class="btn" type="button" data-action="close-modal">Cancel</button>'+(locked?'':'<button class="btn primary" type="submit" id="loadSave">Save load</button>')+'</div>'+
   '</form>');
+  initLoadForm();
 }
 
 /* ---------- drivers ---------- */
@@ -3430,26 +3513,87 @@ function brokerCounts(c){
   });
   return {week:wk,month:mo,total:all};
 }
+/* ---------- broker panel ---------- */
+function brokerLoads(c){return db.loads.filter(function(l){return l.customerId===c.id;});}
+/* the agent shown in the Brokers table: the one with the latest load, otherwise the one added last */
+function recentAgent(c){
+  var ags=agentsOf(c);if(!ags.length)return null;
+  var last={};brokerLoads(c).forEach(function(l){if(l.agentId&&(!last[l.agentId]||loadDay(l)>last[l.agentId]))last[l.agentId]=loadDay(l);});
+  return ags.slice().sort(function(a,b){return String(last[b.id]||'').localeCompare(String(last[a.id]||''))||String(b.addedAt||'').localeCompare(String(a.addedAt||''));})[0];
+}
+function perMile(ls){var mi=0,rt=0;ls.forEach(function(l){var m=Number(l.miles)||0;if(m>0){mi+=m;rt+=Number(l.rate)||0;}});return mi?rt/mi:null;}
+function lastLoadDay(c){var d='';usageLoads().forEach(function(l){if(l.customerId===c.id&&String(l.pickup||'')>d)d=String(l.pickup||'');});return d;}
+var bp={id:'',agent:'',driver:''};
+function openBroker(id){
+  var c=getCust(id);if(!c){toast('That broker is no longer available.');return;}
+  if(bp.id!==id)bp={id:id,agent:'',driver:''};
+  openModal(sheetHead(c.name)+'<div id="bpBody">'+brokerPanelHtml(c)+'</div>',true);
+  var m=$('modal');m.classList.add('side');
+}
+function brokerPanelHtml(c){
+  var all=brokerLoads(c),ags=agentsOf(c),known={};ags.forEach(function(a){known[a.id]=1;});
+  var mine=session.role==='dispatcher',cnt=brokerCounts(c),pm=perMile(all);
+  var stat=function(k,v,sub){return '<div><span class="muted small">'+k+'</span><b>'+v+'</b>'+(sub?'<span class="muted small">'+sub+'</span>':'')+'</div>';};
+  var head='<div class="muted small">'+(c.mc?'MC '+esc(c.mc):'MC not saved')+'</div>'+
+    '<div class="bpsum">'+stat('All-time loads',String(cnt.total),mine&&cnt.total!==all.length?plural(all.length,'load')+' are yours':'')+stat('Agents',String(ags.length),'')+
+      stat('Revenue',money(sumBy(all,function(l){return Number(l.rate)||0;})),mine?'on your loads':'total load rates')+stat('Avg $/mile',pm==null?'—':money(pm),'rate ÷ loaded miles')+'</div>';
+  /* agent cards */
+  var card=function(key,title,lines,ls,extra){
+    var last=ls.reduce(function(d,l){return loadDay(l)>d?loadDay(l):d;},'');
+    return '<button class="bcard'+(extra||'')+'" type="button" data-action="bp-agent" data-a="'+esc(key)+'" aria-pressed="'+(bp.agent===key)+'"><b>'+esc(title)+'</b>'+lines.map(function(x){return '<span class="small">'+x+'</span>';}).join('')+
+      '<span class="small muted">'+plural(ls.length,'load')+' · '+money(sumBy(ls,function(l){return Number(l.rate)||0;}))+(last?' · last '+esc(fmtD(last)):'')+'</span></button>';};
+  var cards=ags.map(function(a){
+    var ls=all.filter(function(l){return l.agentId===a.id;});
+    return card(a.id,a.name||a.email||'Agent',[esc(a.email||'No email'),esc((a.phone||'No phone')+(a.ext?' · ext '+a.ext:''))],ls,'');}).join('');
+  var orphan=all.filter(function(l){return !l.agentId||!known[l.agentId];});
+  if(orphan.length)cards+=card('none','Agent not saved',['Older loads without an agent'],orphan,' nosave');
+  /* filters */
+  var shown=all.filter(function(l){
+    if(bp.agent==='none'){if(l.agentId&&known[l.agentId])return false;}else if(bp.agent&&l.agentId!==bp.agent)return false;
+    if(bp.driver&&l.driverId!==bp.driver)return false;return true;
+  }).sort(function(a,b){return loadDay(b).localeCompare(loadDay(a))||String(b.ref).localeCompare(String(a.ref));});
+  var dids={};all.forEach(function(l){dids[l.driverId]=1;});
+  var dsel='<label class="field" style="grid-template-columns:auto minmax(0,220px);align-items:center;gap:8px"><span>Driver</span><select id="bpDriver"><option value="">All drivers</option>'+
+    Object.keys(dids).map(function(id){return [id,nm(getDrv(id))];}).sort(function(a,b){return String(a[1]).localeCompare(String(b[1]));}).map(function(o){return '<option value="'+esc(o[0])+'"'+(bp.driver===o[0]?' selected':'')+'>'+esc(o[1])+'</option>';}).join('')+'</select></label>';
+  var agName=function(l){var a=l.agentId&&ags.find(function(x){return x.id===l.agentId;});return a?esc(a.name||a.email):'<span class="muted">Not saved</span>';};
+  var rcLink=function(l){var rc=loadDocsOf(l.id).filter(function(d){return d.kind==='RC';});return rc.length?rc.map(function(d,i){return '<button class="linkbtn" type="button" data-action="doc-view" data-id="'+esc(d.id)+'">'+(rc.length>1?'RC '+(i+1):'RC')+'</button>';}).join(' '):'<span class="muted">—</span>';};
+  var filt=bp.agent||bp.driver;
+  var rows=shown.map(function(l){
+    return '<tr><td>'+agName(l)+'</td><td style="white-space:nowrap">'+esc(fmtD(loadDay(l)))+'</td><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td>'+
+      '<td class="num">'+NUM.format(Number(l.miles)||0)+'</td><td class="num">'+money(l.rate)+'</td><td>'+pill(l.status)+'</td><td>'+rcLink(l)+'</td></tr>';}).join('');
+  return head+
+    (cards?'<h3 style="margin:14px 0 6px">Agents</h3><div class="bcards">'+cards+'</div><p class="muted small" style="margin:6px 0 0">Click an agent to see only their loads; click again to see all.</p>':'<p class="muted">No agents saved for this broker yet. They are added from the RC when a load is saved.</p>')+
+    '<div class="toolbar" style="padding:12px 0 6px;gap:10px;flex-wrap:wrap"><h3 style="margin:0;flex:1 1 auto">Loads'+(filt?' · '+plural(shown.length,'load')+' shown':'')+'</h3>'+dsel+(filt?'<button class="btn sm" type="button" data-action="bp-clear">Show all</button>':'')+'</div>'+
+    (rows?'<div class="tablewrap"><table style="min-width:820px"><thead><tr><th>Agent</th><th>Date</th><th>Load #</th><th>Driver</th><th>Route</th><th class="num">Miles</th><th class="num">Rate</th><th>Status</th><th>RC</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      :'<div class="empty">'+(all.length?'No loads match these filters.':(mine?'You have no loads with this broker yet.':'No loads with this broker yet.'))+'</div>');
+}
+function bpRefresh(){var c=getCust(bp.id),b=$('bpBody');if(c&&b)b.innerHTML=brokerPanelHtml(c);}
+function brokerBtn(l,plain){var c=getCust(l.customerId);return c?'<button class="bname'+(plain?' plain':'')+'" type="button" data-action="broker-panel" data-id="'+esc(c.id)+'">'+esc(c.name)+'</button>':esc(brokerName(l));}
 function pCustomers(){
   var edit=can('editBrokers'),del=can('delBroker');
   var cq=ui.cusQ.trim().toLowerCase();
-  var rows=db.customers.filter(function(c){return !cq||[c.name,c.contact].join(' ').toLowerCase().indexOf(cq)>-1;}).sort(function(a,b){return brokerCounts(b).total-brokerCounts(a).total||String(a.name).localeCompare(String(b.name));}).map(function(c){
-    var u=brokerCounts(c);
-    return '<tr><td><b>'+esc(c.name)+'</b></td><td>'+esc(c.contact||'—')+'</td><td>'+esc(c.phone||'—')+'</td><td>'+esc(c.ext||'—')+'</td><td>'+esc(c.email||'—')+'</td>'+
+  var hay=function(c){return [c.name,c.contact,c.email,c.mc,normMc(c.mc)].concat(agentsOf(c).map(function(a){return a.name+' '+a.email;})).join(' ').toLowerCase();};
+  var rows=db.customers.filter(function(c){return !cq||hay(c).indexOf(cq)>-1;}).sort(function(a,b){return brokerCounts(b).total-brokerCounts(a).total||String(a.name).localeCompare(String(b.name));}).map(function(c){
+    var u=brokerCounts(c),ag=recentAgent(c)||{},more=agentsOf(c).length-1,pm=perMile(brokerLoads(c)),last=lastLoadDay(c);
+    return '<tr><td><button class="bname" type="button" data-action="broker-panel" data-id="'+esc(c.id)+'">'+esc(c.name)+'</button></td><td>'+esc(c.mc||'—')+'</td>'+
+      '<td>'+esc(ag.name||'—')+(more>0?'<span class="more">+'+more+' more</span>':'')+'</td><td>'+esc(ag.phone||'—')+'</td><td>'+esc(ag.ext||'—')+'</td><td>'+esc(ag.email||'—')+'</td>'+
       '<td class="num">'+u.week+'</td><td class="num">'+u.month+'</td><td class="num"><b>'+u.total+'</b></td>'+
+      '<td class="num">'+(pm==null?'—':money(pm))+'</td><td style="white-space:nowrap">'+(last?esc(fmtD(last)):'—')+'</td>'+
       '<td><div class="rowact">'+(edit?'<button class="btn sm" type="button" data-action="edit-customer" data-id="'+c.id+'">Edit</button>':'')+(del?'<button class="btn sm danger" type="button" data-action="delete-customer" data-id="'+c.id+'">Delete</button>':'')+'</div></td></tr>';}).join('');
   return head('Brokers','Broker contacts, and how many loads we have done with each company',edit?'<button class="btn primary" type="button" data-action="new-customer">Add broker</button>':'')+
-  '<section class="panel"><div class="toolbar"><input id="cusSearch" class="searchbox" type="search" placeholder="Search brokers by name or company" value="'+esc(ui.cusQ)+'" aria-label="Search brokers"><button class="btn sm" type="button" data-action="clear-cusq">Clear</button></div>'+(rows?'<div class="tablewrap"><table style="min-width:900px"><thead><tr><th>Company</th><th>Broker</th><th>Phone</th><th>Ext</th><th>Email</th><th class="num">This week</th><th class="num">This month</th><th class="num">All-time loads</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(ui.cusQ.trim()?'No brokers match your search.':'No brokers yet. They appear here as you add loads, or add one yourself.')+'</div>')+'</section>';
+  '<section class="panel"><div class="toolbar"><input id="cusSearch" class="searchbox" type="search" placeholder="Search company, agent, email or MC" value="'+esc(ui.cusQ)+'" aria-label="Search brokers"><button class="btn sm" type="button" data-action="clear-cusq">Clear</button></div>'+(rows?'<div class="tablewrap"><table style="min-width:1180px"><thead><tr><th>Company</th><th>MC</th><th>Broker</th><th>Phone</th><th>Ext</th><th>Email</th><th class="num">This week</th><th class="num">This month</th><th class="num">All-time loads</th><th class="num">Avg $/mile</th><th>Last load</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(ui.cusQ.trim()?'No brokers match your search.':'No brokers yet. They appear here as you add loads, or add one yourself.')+'</div>')+'</section>';
 }
 function customerForm(c){
   c=c||{id:'',contact:'',name:'',phone:'',ext:'',email:'',loadLimit:0,limitPeriod:'Month'};
+  var ag=c.id&&Array.isArray(c.agents)?recentAgent(c):null,v=ag?{contact:ag.name,phone:ag.phone,ext:ag.ext,email:ag.email}:c;
   openModal(sheetHead(c.id?'Edit broker':'Add broker')+
-  '<form class="form" data-form="customer"><input type="hidden" name="id" value="'+esc(c.id)+'">'+
+  '<form class="form" data-form="customer"><input type="hidden" name="id" value="'+esc(c.id)+'"><input type="hidden" name="agentId" value="'+esc(ag?ag.id:'')+'">'+
     field('Company name','name',c.name,{required:true})+
-    field('Broker name','contact',c.contact||'')+
-    field('Phone number','phone',c.phone||'',{type:'tel'})+
-    field('Ext','ext',c.ext||'',{hint:'Extension, if there is one.'})+
-    field('Email','email',c.email||'',{type:'email'})+
+    field('MC number','mc',c.mc||'',{inputmode:'numeric'})+
+    field('Broker name','contact',v.contact||'',ag&&agentsOf(c).length>1?{hint:'This edits the agent shown in the Brokers table. Other agents are on the broker panel.'}:{})+
+    field('Phone number','phone',v.phone||'',{type:'tel'})+
+    field('Ext','ext',v.ext||'',{hint:'Extension, if there is one.'})+
+    field('Email','email',v.email||'',{type:'email'})+
     '<div class="formfoot">'+(c.id&&can('delBroker')?'<button class="btn danger" type="button" data-action="delete-customer" data-id="'+c.id+'">Delete</button>':'')+'<button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save broker</button></div></form>');
 }
 
@@ -4522,6 +4666,9 @@ var actions={
     db.drivers=db.drivers.filter(function(d){return d.id!==id;});persist();closeModal();render();toast('Driver deleted');},
   'new-customer':function(){customerForm();},
   'edit-customer':function(el){customerForm(getCust(el.dataset.id));},
+  'broker-panel':function(el){openBroker(el.dataset.id);},
+  'bp-agent':function(el){bp.agent=bp.agent===el.dataset.a?'':el.dataset.a;bpRefresh();},
+  'bp-clear':function(){bp.agent='';bp.driver='';bpRefresh();},
   'delete-customer':function(el){
     if(!can('delBroker'))return;var c=getCust(el.dataset.id);if(!c)return;
     var n=db.loads.filter(function(l){return l.customerId===c.id;}).length;
@@ -4857,12 +5004,35 @@ var forms={
     if(rec.delivery<rec.pickup){toast('Delivery date is before pickup.');return;}
     var bname=String(d.brokerName||'').trim();
     if(!bname){toast('Enter the broker company name.');return;}
-    var bro=db.customers.find(function(c){return String(c.name).trim().toLowerCase()===bname.toLowerCase();});
-    if(!bro){bro={id:uid('c'),contact:'',name:bname,phone:'',ext:'',email:''};db.customers.push(bro);}
-    rec.customerId=bro.id;rec.brokerName=bro.name;
+    var bmc=normMc(d.brokerMc),agIn={name:String(d.agentName||'').trim(),email:String(d.agentEmail||'').trim(),phone:String(d.agentPhone||'').trim(),ext:digitsOnly(d.agentExt)};
+    var said=[];
+    /* the broker: by MC number if we have it, otherwise by company name (any upper/lower case) */
+    var bro=findBroker(bname,bmc);
+    if(!bro){
+      bro={id:uid('c'),contact:agIn.email?agIn.name:'',name:bname,phone:agIn.email?agIn.phone:'',ext:agIn.email?agIn.ext:'',email:agIn.email,mc:bmc,agents:[]};
+      db.customers.push(bro);said.push('New broker '+bname+' added to Brokers');
+    }else if(bmc&&!normMc(bro.mc))bro.mc=bmc;
+    /* the agent: by email under that broker; no email means the load is linked to the broker only */
+    rec.agentId='';
+    if(agIn.email){
+      var list=ensureAgents(bro),ag=list.find(function(a){return lc(a.email)===lc(agIn.email);});
+      if(!ag){
+        ag={id:uid('ag'),name:agIn.name,email:agIn.email,phone:agIn.phone,ext:agIn.ext,addedAt:new Date().toISOString(),addedBy:session.name||session.email};
+        list.push(ag);if(said.length)said[0]+=' with agent '+(agIn.name||agIn.email);else said.push('Agent '+(agIn.name||agIn.email)+' added under '+bro.name);
+      }else{
+        if(!ag.name&&agIn.name)ag.name=agIn.name;
+        if(!ag.phone&&agIn.phone)ag.phone=agIn.phone;
+        if(!ag.ext&&agIn.ext)ag.ext=agIn.ext;
+        var chg=agentChanges(ag,agIn.phone,agIn.ext),upd=f.querySelector('#rcUpd');
+        if(chg.length&&upd&&upd.checked){if(agIn.phone)ag.phone=agIn.phone;if(agIn.ext)ag.ext=agIn.ext;said.push('Agent updated: '+chg.join(', '));}
+        else if(chg.length)said.push('Saved agent phone/ext kept');
+      }
+      rec.agentId=ag.id;
+    }
+    rec.customerId=bro.id;rec.brokerName=bro.name;rec.brokerMc=normMc(bro.mc)||'';
     if(l)Object.assign(l,rec);
     else{db.seq.load+=1;rec.id=uid('l');rec.invoiceId='';rec.bookedAt=new Date().toISOString();db.loads.push(rec);}
-    persist();closeModal();render();toast('Load saved'+(rcFile?'. Uploading the RC…':'')+(session.role==='dispatcher'&&rec.dispatcherId!==session.empId?'. Assigned to '+nm(getEmp(rec.dispatcherId))+', so it is listed under them.':''));
+    persist();closeModal();render();toast('Load saved'+(said.length?'. '+said.join('. '):'')+(rcFile?'. Uploading the RC…':'')+(session.role==='dispatcher'&&rec.dispatcherId!==session.empId?'. Assigned to '+nm(getEmp(rec.dispatcherId))+', so it is listed under them.':''));
     if(rcFile)uploadLoadRc(l||rec,rcFile);
   },
   'driver':function(f){
@@ -4885,8 +5055,14 @@ var forms={
     persist();closeModal();render();toast(rec.driverStatus==='Dead'&&want==='Dead'?deadMsg(cur||rec):'Driver saved');
   },
   'customer':function(f){
-    var d=formData(f),rec={contact:d.contact.trim(),name:d.name.trim(),phone:d.phone.trim(),ext:(d.ext||'').trim(),email:(d.email||'').trim()};
-    if(d.id)Object.assign(getCust(d.id),rec);else{rec.id=uid('c');db.customers.push(rec);}
+    var d=formData(f),rec={contact:d.contact.trim(),name:d.name.trim(),phone:d.phone.trim(),ext:(d.ext||'').trim(),email:(d.email||'').trim(),mc:normMc(d.mc)};
+    var cur=d.id?getCust(d.id):null;
+    if(cur&&Array.isArray(cur.agents)&&d.agentId){
+      /* the form shows the agent from the table: save the changes on that agent */
+      var ag=cur.agents.find(function(a){return a.id===d.agentId;});
+      if(ag){ag.name=rec.contact;ag.phone=rec.phone;ag.ext=rec.ext;ag.email=rec.email;}
+      cur.name=rec.name;cur.mc=rec.mc;
+    }else if(cur)Object.assign(cur,rec);else{rec.id=uid('c');db.customers.push(rec);}
     persist();closeModal();render();toast('Broker saved');
   },
   'emp':function(f){
@@ -4931,6 +5107,7 @@ document.addEventListener('change',function(e){
   if(t.id==='salMonth'&&okMonth(t.value)){ui.salYm=t.value;render();}
   if(t.id==='reportYear'&&t.value){ui.reportYear=t.value;render();}
   if(t.id==='ayEmp'&&t.value){ui.ayEmp=t.value;render();}
+  if(t.id==='bpDriver'){bp.driver=t.value;bpRefresh();}
   if(t.id==='ayYear'&&t.value){ui.ayYear=t.value;render();}
 });
 document.addEventListener('input',function(e){
