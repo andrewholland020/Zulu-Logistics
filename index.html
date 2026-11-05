@@ -219,6 +219,39 @@ textarea{resize:vertical;min-height:70px}
 .bpnote p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .bpnoteform{display:grid;gap:6px}
 .bpnoteform textarea{min-height:64px;resize:vertical}
+/* monthly overview */
+.mo .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;padding:0 14px}
+.mo .tile{border:1px solid var(--line);border-radius:6px;padding:10px 12px;display:grid;gap:2px;min-width:0}
+.mo .tile .k{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.mo .tile .v{font-size:1.35rem;font-weight:700;font-variant-numeric:tabular-nums}
+.mo .tile .d{font-size:.8rem;color:var(--muted)}
+.mo .tile.good{border-color:#2f8f57;background:#e8f6ee}.mo .tile.good .v{color:#17663a}
+.mo .tile.bad{border-color:var(--bad);background:var(--bad-soft)}.mo .tile.bad .v{color:var(--bad)}
+.mo .ctrl{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:0 14px}
+.mo .ctrl .field{grid-template-columns:auto auto;align-items:center;gap:8px}
+.mochart{padding:4px 14px 0;overflow-x:auto}
+.mochart svg{display:block;width:100%;min-width:560px;height:auto}
+.mochart text{fill:var(--muted);font-size:11px;font-family:inherit}
+.molegend{display:flex;flex-wrap:wrap;gap:14px;padding:4px 14px;font-size:.8rem;color:var(--muted)}
+.molegend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.mo .neg{color:var(--bad);font-weight:600}.mo .pos{color:#17663a;font-weight:600}
+.doc.morpt h3{margin:4px 0 0;font-size:1rem}
+.doc.morpt table{font-size:.85rem}
+.doc.morpt td.num,.doc.morpt th.num{white-space:nowrap}
+.doc.morpt .mono{white-space:nowrap}
+.doc.morpt .sumtbl td{padding:4px 8px}
+@media print{.doc.morpt{gap:12px}.doc.morpt .pb{break-before:page}.doc.morpt tr{break-inside:avoid}
+  /* printed documents keep real tables even when the page is as narrow as a phone */
+  .doc table.cards{display:table!important;width:100%;border-collapse:collapse!important}
+  .doc table.cards thead{display:table-header-group!important}
+  .doc table.cards tbody{display:table-row-group!important}
+  .doc table.cards tfoot{display:table-footer-group!important}
+  .doc table.cards tr{display:table-row!important;padding:0!important}
+  .doc table.cards tr>*{display:table-cell!important;padding:4px 6px!important;text-align:inherit!important;border-bottom:1px solid #ddd!important;font-size:inherit!important}
+  .doc table.cards tr>.num{text-align:right!important}
+  .doc.morpt table.cards tr>.num,.doc.morpt table.cards tr>.nw{white-space:nowrap!important}
+  .doc.morpt .keep{break-inside:avoid}
+  .doc table.cards tr>*::before,.doc table.cards tr>*::after{content:none!important;display:none!important}}
 @media (max-width:760px){.bpsum{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .rcnote label{display:flex;gap:6px;align-items:flex-start;margin-top:4px;font-weight:600}
 fieldset.bcontact{grid-column:1/-1;border:1px solid var(--line);border-radius:6px;padding:10px 12px 12px;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
@@ -576,7 +609,7 @@ button.cmfile{font:inherit;text-align:left;cursor:pointer;width:100%}
   body.printing-doc{background:#fff}
   body.printing-doc #root,body.printing-doc #toast,body.printing-doc .scrim{display:none!important}
   body.printing-doc #modal{position:static!important;display:block!important;padding:0!important;overflow:visible!important;background:none!important}
-  body.printing-doc .sheet{border:0!important;box-shadow:none!important;max-width:none!important;padding:0!important;margin:0!important;display:block!important}
+  body.printing-doc .sheet{border:0!important;box-shadow:none!important;max-width:none!important;padding:0!important;margin:0!important;display:block!important;min-height:0!important}
   body.printing-doc .sheet>*:not(.doc){display:none!important}
   body.printing-doc .doc{border:0!important;padding:0!important}
   body.printing-doc .doc .tablewrap{overflow:visible!important}
@@ -1723,6 +1756,7 @@ var ICONS={
   account:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>',
   followups:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>',
   myreport:'<path d="M21 12a9 9 0 1 1-9-9v9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/>',
+  mreport:'<path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/>',
   bell:'<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
   menu:'<path d="M4 7h16M4 12h16M4 17h16"/>',
   close:'<path d="M6 6l12 12M18 6 6 18"/>',
@@ -2600,12 +2634,12 @@ function invStatus(inv){if(inv.status==='Sent'&&inv.due<TODAY)return 'Overdue';r
 
 /* ---------- permissions ---------- */
 var ROLES={
-  admin:{label:'Admin',pages:['overview','inbox','loads','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
+  admin:{label:'Admin',pages:['overview','mreport','inbox','loads','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
   accountant:{label:'Accountant',pages:['overview','inbox','loads','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
   dispatcher:{label:'Dispatcher',pages:['overview','inbox','myreport','loads','invoices','driverov','customers','mypay','account']},
   sales:{label:'Sales agent',pages:['salesdash','inbox','followups','dailyreport','myreport','mypay','account']}
 };
-var LABELS={salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
+var LABELS={mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
 function canSetPw(kind){
   var r=session&&session.role;
   if(r==='admin')return true;
@@ -2826,6 +2860,7 @@ function renderNow(){
 function pageHtml(){
   switch(ui.page){
     case 'overview':return pOverview();
+    case 'mreport':return session.role==='admin'?pMonthlyReport():pOverview();
     case 'inbox':return pInbox();
     case 'salesdash':return pSalesHome();
     case 'salesreports':return pSalesReports();
@@ -3224,7 +3259,160 @@ function makeExpense(id,date,type,note,amount,currency,rate){
   return {id:id,date:date,type:type,note:note,amount:amount,currency:currency,rate:rate,usd:usd,rs:rsv};
 }
 function dual(usd,rsv){return money(usd)+' · '+rs(rsv);}
-function pOverviewAdmin(){
+/* ---------- Monthly Overview (admin only): dispatch fee, expenses, salaries, profit / loss ---------- */
+function moDefaultYm(){var d=new Date(TODAY+'T00:00:00');d.setDate(1);d.setMonth(d.getMonth()-1);return d.getFullYear()+'-'+pad(d.getMonth()+1);}
+function moPeriod(){
+  if(ui.moMode==='Custom Range'&&okDate(ui.moFrom)&&okDate(ui.moTo))return {mode:'range',from:ui.moFrom,to:ui.moTo,label:fmtD(ui.moFrom)+' to '+fmtD(ui.moTo),ym:ui.moTo.slice(0,7)};
+  var ym=/^\d{4}-\d{2}$/.test(ui.moYm||'')?ui.moYm:moDefaultYm();
+  return {mode:'month',ym:ym,from:ym+'-01',to:lastDayOf(ym),label:ymLabel(ym)};
+}
+function moComUsd(p){
+  if(p.commissionUsd!=null)return Number(p.commissionUsd)||0;
+  if(Array.isArray(p.comRows)&&p.comRows.length)return r2(p.comRows.reduce(function(s,c){return s+(Number(c.fees)||0)*(Number(c.pct)||0)/100;},0));
+  if(p.feesUsd!=null&&p.commissionPct!=null)return slipComUsd(p);
+  return p.rate?r2((Number(p.commission)||0)/Number(p.rate)):null;
+}
+function moMid(a,b){var t=(Date.parse(a+'T12:00:00Z')+Date.parse(b+'T12:00:00Z'))/2;return new Date(t).toISOString().slice(0,10);}
+/* everything for one period: income from paid invoices, expenses, salary (gross) from payslips and custom-range payments */
+function moCalc(per){
+  var inR=function(d){return d&&d>=per.from&&d<=per.to;},noRate={};
+  var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inR(i.paidOn);});
+  var incUsd=0,incRs=0,byDisp={};
+  paid.forEach(function(inv){
+    var ym=String(inv.paidOn).slice(0,7),rate=fxFor(ym),t=invTotal(inv);
+    incUsd+=t;if(rate)incRs+=t*rate;else noRate[ym]=1;
+    inv.loadIds.forEach(function(id){var l=getLoad(id);if(!l)return;var k=l.dispatcherId||'';byDisp[k]=(byDisp[k]||0)+invFee(inv,l);});
+    var a=invAdj(inv);if(a)byDisp['_adj']=(byDisp['_adj']||0)+a.amount;
+  });
+  var ex=db.expenses.filter(function(e){return inR(e.date);}).sort(function(a,b){return String(a.date).localeCompare(String(b.date));});
+  var exRs=ex.reduce(function(s,e){return s+(Number(e.rs)||0);},0),exUsd=ex.reduce(function(s,e){return s+(Number(e.usd)||0);},0);
+  var sal=[];
+  db.payslips.forEach(function(p){
+    var hit=per.mode==='month'?p.ym===per.ym:inR(String(p.ym)+'-15');
+    if(hit)sal.push({kind:'Monthly payslip',issued:p.issued,comUsd:moComUsd(p),no:p.no,empId:p.empId,name:p.empName||nm(getEmp(p.empId)),title:p.empTitle||(getEmp(p.empId)||{}).title||'',period:ymLabel(p.ym),base:Number(p.base)||0,commission:Number(p.commission)||0,bonus:Number(p.bonus)||0,gross:Number(p.gross)||0,advance:Number(p.advance)||0,fines:Number(p.fines)||0,net:Number(p.net)||0});
+  });
+  db.payruns.forEach(function(r){
+    if(!inR(moMid(r.from,r.to)))return;
+    sal.push({kind:'Custom range',issued:r.issued,comUsd:moComUsd(r),no:r.no,empId:r.empId,name:r.empName||nm(getEmp(r.empId)),title:r.empTitle||(getEmp(r.empId)||{}).title||'',period:fmtD(r.from)+' to '+fmtD(r.to),base:Number(r.base)||0,commission:Number(r.commission)||0,bonus:Number(r.bonus)||0,gross:Number(r.gross)||0,advance:Number(r.advance)||0,fines:Number(r.fines)||0,net:Number(r.net)||0});
+  });
+  sal.sort(function(a,b){return String(a.title).localeCompare(String(b.title))||String(a.name).localeCompare(String(b.name));});
+  var salRs=sal.reduce(function(s,x){return s+x.net;},0);
+  /* Final once every dispatcher and sales agent has a payslip (or custom-range payment) for the period */
+  var staffIds=db.employees.filter(function(e){return e.title==='Dispatcher'||e.title==='Sales agent';}).map(function(e){return e.id;});
+  var got={};sal.forEach(function(x){got[x.empId]=1;});
+  var missing=staffIds.filter(function(id){return !got[id];});
+  var over=per.to<TODAY;
+  return {per:per,paid:paid,incUsd:r2(incUsd),incRs:Math.round(incRs),byDisp:byDisp,noRate:Object.keys(noRate),ex:ex,exRs:Math.round(exRs),exUsd:r2(exUsd),sal:sal,salRs:Math.round(salRs),
+    profitRs:Math.round(incRs-exRs-salRs),final:over&&!missing.length&&staffIds.length>0,over:over,missing:missing};
+}
+function moChartSvg(year){
+  var data=[];for(var m=1;m<=12;m++){var ym=year+'-'+pad(m);data.push(Object.assign({m:m},moCalc({mode:'month',ym:ym,from:ym+'-01',to:lastDayOf(ym)})));}
+  var W=760,H=260,L=64,R=12,T=14,B=30,cw=(W-L-R)/12;
+  var hi=Math.max.apply(null,data.map(function(d){return Math.max(d.incRs,d.exRs+d.salRs,d.profitRs);}).concat([1]));
+  var lo=Math.min.apply(null,data.map(function(d){return d.profitRs;}).concat([0]));
+  var step=function(v){var p=Math.pow(10,Math.floor(Math.log10(v||1))),n=v/p;return (n<=1?1:n<=2?2:n<=5?5:10)*p;};
+  var tick=step((hi-lo)/4),top=Math.ceil(hi/tick)*tick,bot=Math.floor(lo/tick)*tick;if(top===bot)top=bot+tick;
+  var y=function(v){return T+(top-v)/(top-bot)*(H-T-B);};
+  var short=function(v){var a=Math.abs(v);return (v<0?'−':'')+(a>=1e6?(a/1e6).toFixed(a%1e6?1:0)+'M':a>=1e3?Math.round(a/1e3)+'k':String(a));};
+  var g='';
+  for(var t=bot;t<=top+1e-6;t+=tick){g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(t).toFixed(1)+'" y2="'+y(t).toFixed(1)+'" stroke="'+(t===0?'var(--ink)':'var(--line)')+'" stroke-width="'+(t===0?1.2:1)+'"/><text x="'+(L-6)+'" y="'+(y(t)+4).toFixed(1)+'" text-anchor="end">Rs '+short(t)+'</text>';}
+  var bars='',pts=[],dots='';
+  data.forEach(function(d,i){
+    var x0=L+i*cw,bw=Math.min(18,cw*0.32);
+    var xi=x0+cw/2-bw-1,xc=x0+cw/2+1;
+    if(d.incRs>0)bars+='<rect x="'+xi.toFixed(1)+'" y="'+y(d.incRs).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+(y(0)-y(d.incRs)).toFixed(1)+'" fill="#2f8f57"><title>'+esc(ymLabel(d.per.ym))+' dispatch fee '+esc(rs(d.incRs))+'</title></rect>';
+    if(d.exRs>0)bars+='<rect x="'+xc.toFixed(1)+'" y="'+y(d.exRs).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+(y(0)-y(d.exRs)).toFixed(1)+'" fill="#7c8aa5"><title>Expenses '+esc(rs(d.exRs))+'</title></rect>';
+    if(d.salRs>0)bars+='<rect x="'+xc.toFixed(1)+'" y="'+y(d.exRs+d.salRs).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+(y(d.exRs)-y(d.exRs+d.salRs)).toFixed(1)+'" fill="#d9962b"><title>Salaries '+esc(rs(d.salRs))+'</title></rect>';
+    var has=d.incRs||d.exRs||d.salRs;
+    if(has){var px=x0+cw/2,py=y(d.profitRs);pts.push(px.toFixed(1)+','+py.toFixed(1));dots+='<circle cx="'+px.toFixed(1)+'" cy="'+py.toFixed(1)+'" r="4" fill="'+(d.profitRs<0?'#c0392b':'#17663a')+'" stroke="var(--surface)" stroke-width="1.5"><title>'+(d.profitRs<0?'Loss ':'Profit ')+esc(rs(Math.abs(d.profitRs)))+'</title></circle>';}
+    g+='<text x="'+(x0+cw/2).toFixed(1)+'" y="'+(H-10)+'" text-anchor="middle">'+monthName(d.m).slice(0,3)+'</text>';
+  });
+  var line=pts.length>1?'<polyline points="'+pts.join(' ')+'" fill="none" stroke="var(--ink)" stroke-width="1.6" stroke-dasharray="4 3"/>':'';
+  return {svg:'<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Dispatch fee, costs and profit or loss for each month of '+year+'">'+g+bars+line+dots+'</svg>',data:data};
+}
+function moLegend(){return '<div class="molegend"><span><i style="background:#2f8f57"></i>Dispatch fee (income)</span><span><i style="background:#7c8aa5"></i>Expenses</span><span><i style="background:#d9962b"></i>Salaries</span><span><i style="background:#17663a;border-radius:50%"></i>Profit</span><span><i style="background:#c0392b;border-radius:50%"></i>Loss</span></div>';}
+function moStatus(c){
+  if(!c.over)return '<span class="pill p-delivered">Not over yet · estimate</span>';
+  if(c.final)return '<span class="pill p-paid">Final · all payslips issued</span>';
+  return '<span class="pill p-delivered">Estimate · '+plural(c.missing.length,'payslip')+' not issued</span>';
+}
+function monthlyOverviewHtml(){
+  if(!session||session.role!=='admin')return '';
+  var per=moPeriod(),c=moCalc(per),year=per.ym.slice(0,4),ch=moChartSvg(year);
+  var yms=[];var set={};set[moDefaultYm()]=1;set[TODAY.slice(0,7)]=1;
+  db.invoices.forEach(function(i){if(i.paidOn)set[String(i.paidOn).slice(0,7)]=1;});db.expenses.forEach(function(e){if(e.date)set[String(e.date).slice(0,7)]=1;});db.payslips.forEach(function(p){if(p.ym)set[p.ym]=1;});
+  yms=Object.keys(set).filter(function(x){return /^\d{4}-\d{2}$/.test(x);}).sort().reverse();
+  var isR=per.mode==='range';
+  var ctrl='<div class="ctrl"><div class="chips"><button class="chip" type="button" data-action="mo-mode" data-m="Month" aria-pressed="'+!isR+'">Month</button><button class="chip" type="button" data-action="mo-mode" data-m="Custom Range" aria-pressed="'+isR+'">Custom Range</button></div>'+
+    (isR?'<label class="field"><span>From</span>'+dateInput('moFrom','',per.from,'date','aria-label="From"')+'</label><label class="field"><span>To</span>'+dateInput('moTo','',per.to,'date','aria-label="To"')+'</label><button class="btn sm primary" type="button" data-action="mo-apply">Show</button>'
+      :'<label class="field"><span>Month</span><select id="moYm">'+yms.map(function(ym){return '<option value="'+ym+'"'+(ym===per.ym?' selected':'')+'>'+esc(ymLabel(ym))+'</option>';}).join('')+'</select></label>')+
+    '<span style="flex:1"></span>'+moStatus(c)+'<button class="btn sm primary" type="button" data-action="mo-print">Print monthly report</button></div>';
+  var tile=function(k,v,d,cls){return '<div class="tile'+(cls?' '+cls:'')+'"><span class="k">'+k+'</span><span class="v">'+v+'</span><span class="d">'+d+'</span></div>';};
+  var pr=c.profitRs;
+  var tiles='<div class="tiles">'+
+    tile('Total dispatch fee',rs(c.incRs),money(c.incUsd)+' · '+plural(c.paid.length,'paid invoice'))+
+    tile('Monthly expenses',rs(c.exRs),money(c.exUsd)+' · '+c.ex.length+(c.ex.length===1?' entry':' entries'))+
+    tile('Total payslips issued',rs(c.salRs),plural(c.sal.length,'payslip')+' · amount issued')+
+    tile(pr<0?'Loss':'Profit',rs(Math.abs(pr)),'dispatch fee − expenses − salaries',pr<0?'bad':'good')+'</div>';
+  var warn=c.noRate.length?'<p class="small" style="margin:0 14px;color:var(--bad)">No exchange rate saved for '+c.noRate.map(ymLabel).join(', ')+'. Save it on the Payroll page so the dispatch fee is counted in rupees.</p>':'';
+  var rows=ch.data.filter(function(d){return d.incRs||d.exRs||d.salRs;}).map(function(d){var has=true;
+    return '<tr'+(has?'':' class="quiet"')+'><td>'+esc(ymLabel(d.per.ym))+'</td><td class="num">'+(has?rs(d.incRs):'—')+'</td><td class="num">'+(has?rs(d.exRs):'—')+'</td><td class="num">'+(has?rs(d.salRs):'—')+'</td><td class="num">'+(has?'<span class="'+(d.profitRs<0?'neg':'pos')+'">'+(d.profitRs<0?'Loss ':'Profit ')+rs(Math.abs(d.profitRs))+'</span>':'—')+'</td></tr>';}).join('');
+  return '<section class="panel mo" id="monthlyOverview"><header><div><h2>Monthly Overview · '+esc(per.label)+'</h2><div class="muted small">'+esc(fmtD(per.from))+' to '+esc(fmtD(per.to))+'. Dispatch fee counts invoices paid in the period. Salaries are the amounts of the payslips issued for the period. Only the admin sees this.</div></div></header>'+
+    '<div style="display:grid;gap:12px;padding-bottom:14px">'+ctrl+tiles+warn+
+    '<h3 style="margin:4px 14px 0;font-size:.95rem">Driver paid invoices</h3>'+moPaidInvTable(c,false)+
+    '<h3 style="margin:4px 14px 0;font-size:.95rem">'+year+' by month</h3><div class="mochart">'+ch.svg+'</div>'+moLegend()+
+    '<div class="tablewrap" style="margin:0 14px"><table style="min-width:560px"><thead><tr><th>Month</th><th class="num">Dispatch fee</th><th class="num">Expenses</th><th class="num">Salaries</th><th class="num">Profit / Loss</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="muted">No paid invoices, expenses or payslips in '+year+' yet.</td></tr>')+'</tbody></table></div></div></section>';
+}
+/* invoices paid by drivers in a period: one row per invoice */
+function moPaidInvRows(c){
+  return c.paid.slice().sort(function(a,b){return String(a.paidOn).localeCompare(String(b.paidOn))||String(a.no).localeCompare(String(b.no));}).map(function(inv){
+    var d=getDrv(inv.driverId)||{};return {date:inv.paidOn,no:inv.no,driver:d.name||'Removed driver',mc:d.mc||'—',amt:invTotal(inv)};});
+}
+function moPaidInvTable(c,forPrint){
+  var rows=moPaidInvRows(c),drv={};c.paid.forEach(function(i){drv[i.driverId]=1;});
+  var n=Object.keys(drv).length,tot=r2(rows.reduce(function(s,x){return s+x.amt;},0));
+  var head=(forPrint?'<h3>Driver paid invoices</h3>':'')+'<p class="small" style="margin:0'+(forPrint?'':' 14px')+'">'+plural(rows.length,'invoice')+' paid by '+plural(n,'driver')+' · '+money(tot)+(c.incRs?' ('+rs(c.incRs)+')':'')+'</p>';
+  if(!rows.length)return head;
+  return head+'<div class="tablewrap"'+(forPrint?'':' style="margin:0 14px"')+'><table style="min-width:520px"><thead><tr><th>Date</th><th>Driver name</th><th>Driver MC</th><th class="num">Invoice amount ($)</th></tr></thead><tbody>'+
+    rows.map(function(x){return '<tr><td class="nw" style="white-space:nowrap">'+esc(fmtD(x.date))+'</td><td>'+esc(x.driver)+'</td><td class="mono">'+esc(x.mc)+'</td><td class="num">'+money(x.amt)+'</td></tr>';}).join('')+
+    '<tr class="total"><td colspan="3">Total</td><td class="num">'+money(tot)+'</td></tr></tbody></table></div>';
+}
+/* the printable report */
+function moReport(){
+  var per=moPeriod(),c=moCalc(per),co=(db.settings&&db.settings.company)||'ZULU Logistics';
+  var salRows=c.sal.map(function(x){
+    return '<tr><td>'+esc(x.name)+'</td><td>'+esc(x.title||'—')+'</td><td class="nw">'+esc(fmtD(x.issued))+'</td>'+
+      '<td class="num">'+(x.comUsd==null?'—':money(x.comUsd))+'</td><td class="num">'+(x.base?rs(x.base):'—')+'</td><td class="num">'+(x.bonus?rs(x.bonus):'—')+'</td><td class="num"><b>'+rs(x.net)+'</b></td></tr>';}).join('');
+  var sum=function(k){return c.sal.reduce(function(s,x){return s+(Number(x[k])||0);},0);};
+  var exRows=c.ex.map(function(e){return '<tr><td class="nw">'+esc(fmtD(e.date))+'</td><td>'+esc(e.note)+'</td><td class="num">'+rs(e.rs)+'</td></tr>';}).join('');
+  var doc='<div class="doc nowm morpt">'+
+    '<div class="top"><div><div class="no">Monthly Report</div><div class="muted">'+esc(co)+'</div></div>'+
+      '<div style="text-align:right"><b>'+esc(per.mode==='month'?per.label:ymLabel(per.ym))+'</b>'+
+      '<div>Started <b>'+esc(fmtD(per.from))+'</b> · Ended <b>'+esc(fmtD(per.to))+'</b></div>'+
+      '<div class="muted small">'+(c.final?'Final':'Estimate')+' · printed '+esc(fmtD(TODAY))+'</div></div></div>'+
+    '<table class="sumtbl"><tbody>'+
+      '<tr><td>Total dispatch fees</td><td class="num"><b>'+rs(c.incRs)+'</b></td><td class="num muted">'+money(c.incUsd)+'</td></tr>'+
+      '<tr><td>Total payslips issued</td><td class="num"><b>'+rs(c.salRs)+'</b></td><td class="num muted">'+plural(c.sal.length,'payslip')+'</td></tr>'+
+      '<tr><td>Monthly expenses</td><td class="num"><b>'+rs(c.exRs)+'</b></td><td class="num muted">'+c.ex.length+(c.ex.length===1?' entry':' entries')+'</td></tr></tbody></table>'+
+    (c.noRate.length?'<p class="small" style="margin:0">Exchange rate missing for '+esc(c.noRate.map(ymLabel).join(', '))+': those dispatch fees are not in the rupee total.</p>':'')+
+    '<div class="keep" style="display:grid;gap:8px"><h3>Salaries</h3>'+
+    (c.sal.length?'<div class="tablewrap"><table><thead><tr><th>Employee name</th><th>Designation</th><th>Payslip issued</th><th class="num">Commission ($)</th><th class="num">Base pay (Rs)</th><th class="num">Bonus (Rs)</th><th class="num">Payslip amount (Rs)</th></tr></thead><tbody>'+salRows+
+      '<tr class="total"><td colspan="3">Total</td><td class="num">'+money(sum('comUsd'))+'</td><td class="num">'+rs(sum('base'))+'</td><td class="num">'+rs(sum('bonus'))+'</td><td class="num">'+rs(sum('net'))+'</td></tr></tbody></table></div>'
+      :'<p class="muted small" style="margin:0">No payslips issued for this period yet.</p>')+'</div>'+
+    '<div style="display:grid;gap:8px">'+moPaidInvTable(c,true)+'</div>'+
+    '<div class="keep" style="display:grid;gap:8px"><h3>Monthly expenses</h3>'+
+    (c.ex.length?'<div class="tablewrap"><table><thead><tr><th>Date</th><th>Expense</th><th class="num">Cost (Rs)</th></tr></thead><tbody>'+exRows+
+      '<tr class="total"><td colspan="2">Total</td><td class="num">'+rs(c.exRs)+'</td></tr></tbody></table></div>':'<p class="muted small" style="margin:0">No expenses in this period.</p>')+'</div>'+
+  '</div>';
+  var fname='Monthly report '+(per.mode==='month'?per.label:per.from+' to '+per.to);
+  openModal(sheetHead('Monthly report · '+per.label)+
+    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="close-modal">Close</button><button class="btn primary" type="button" data-action="print-doc" data-name="'+esc(fname)+'">Print / Save as PDF</button></div>'+doc,true);
+}
+/* Monthly Report page (admin): monthly overview with graph and print, paid invoices, and the activity / revenue / expenses sections */
+function pMonthlyReport(){
+  return pOverviewAdmin(true);
+}
+function pOverviewAdmin(asReport){
   var r=ovRange();
   var loads=db.loads.filter(function(l){return inRange(l.pickup,r);});
   var sales=db.loads.filter(function(l){return isDone(l)&&inRange(loadDay(l),r);});
@@ -3264,8 +3452,10 @@ function pOverviewAdmin(){
     return '<tr><td>'+fmtD(e.date)+'</td><td>'+pillType(e.type)+'</td><td>'+esc(e.note)+'</td><td class="num">'+(e.currency==='Rs'?rs(e.amount):money(e.amount))+'</td><td class="num">'+money(e.usd)+'</td><td class="num">'+rs(e.rs)+'</td>'+
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="edit-expense" data-id="'+e.id+'">Edit</button></div></td></tr>';}).join('');
 
-  return head('Overview',r.label,controls)+
-  '<div class="stats">'+
+  if(asReport)return head('Monthly Report','Monthly overview, graph and printing · admin only','')+monthlyOverviewHtml()+
+    '<section class="panel"><header><div><h2>Dispatch revenue and expenses</h2><div class="muted small">Choose the period for the two sections below: '+esc(r.label)+'</div></div></header><div style="padding:0 14px 14px">'+controls+'</div></section>'+
+    ovRevenueHtml()+ovExpensesHtml();
+  function ovStatsHtml(){return '<div class="stats">'+
     statTile('No. of loads',String(loads.length),'booked with pickup in this period')+
     statTile('No. of sales',String(sales.length),'loads delivered in this period')+
     statTile('Invoices sent',String(sent.length),'issued in this period')+
@@ -3276,11 +3466,12 @@ function pOverviewAdmin(){
     statTile('Pending invoices',String(pendAll.length),money(money_(pendAll))+' unpaid in total · '+plural(pend.length,'invoice')+' issued in this period'+(overdue?' · '+overdue+' overdue':''))+
     statTile('Top gross dispatcher',topD?nm(getEmp(topD.id)):'—',topD?money(topD.fees)+' dispatch gross on '+plural(topD.n,'load'):'no deliveries in this period')+
     statTile('Top sales agent',topS?nm(getEmp(topS.id)):'—',topS?plural(topS.n,'active sale')+' from '+plural(topS.nd,'driver')+' · '+money(topS.fees)+' dispatch fees':'no deliveries in this period')+
-  '</div>'+todayPanel()+todaySalesPanel()+
-  (session.role!=='admin'?'':'<section class="panel"><header><div><h2>Monthly dispatch revenue</h2><div class="muted small">Dispatch fees on loads delivered, '+esc(r.label)+'</div></div></header>'+
+  '</div>';};
+  return head('Overview',r.label,controls)+ovStatsHtml()+todayPanel()+todaySalesPanel();
+  function ovRevenueHtml(){return (session.role!=='admin'?'':'<section class="panel"><header><div><h2>Monthly dispatch revenue</h2><div class="muted small">Dispatch fees on loads delivered, '+esc(r.label)+'</div></div></header>'+
     '<div class="tablewrap"><table style="min-width:420px"><thead><tr><th>Month</th><th class="num">Loads delivered</th><th class="num">Dispatch revenue</th></tr></thead><tbody>'+mrows+
-    '<tr class="total"><td>Total</td><td class="num">'+totN+'</td><td class="num">'+money(totF)+'</td></tr></tbody></table></div></section>')+
-  (session.role!=='admin'?'':'<section class="panel"><header><div><h2>Company expenses</h2><div class="muted small">Bills and other costs you add by hand, for '+esc(r.label)+'</div></div><button class="btn primary sm" type="button" data-action="new-expense">Add expense</button></header>'+
+    '<tr class="total"><td>Total</td><td class="num">'+totN+'</td><td class="num">'+money(totF)+'</td></tr></tbody></table></div></section>');}
+  function ovExpensesHtml(){return (session.role!=='admin'?'':'<section class="panel"><header><div><h2>Company expenses</h2><div class="muted small">Bills and other costs you add by hand, for '+esc(r.label)+'</div></div><button class="btn primary sm" type="button" data-action="new-expense">Add expense</button></header>'+
     '<div class="stats" style="border:0;border-radius:0;border-bottom:1px solid var(--line)">'+
       statTile('Bills',money(sU(bills)),rs(sR(bills)))+
       statTile('Other expenses',money(sU(other)),rs(sR(other)))+
@@ -3289,6 +3480,7 @@ function pOverviewAdmin(){
     '</div>'+
     (erows?'<div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Date</th><th>Type</th><th>Description</th><th class="num">Entered as</th><th class="num">In dollars</th><th class="num">In rupees</th><th></th></tr></thead><tbody>'+erows+'</tbody></table></div>':'<div class="empty">No expenses in this period. Use Add expense to record a bill or another cost.</div>')+
   '</section>');
+  }
 }
 function pillType(t){return '<span class="pill '+(t==='Bill'?'p-sent':'p-booked')+'">'+esc(t)+'</span>';}
 function yearsList(){
@@ -4672,6 +4864,17 @@ var actions={
     if(p!=='Custom Range')ui.ov=ovPreset(p);
     else if(!ui.ov)ui.ov=ovPreset('This Week');
     render();},
+  'mo-mode':function(el){
+    ui.moMode=el.dataset.m;
+    if(ui.moMode==='Custom Range'&&!(okDate(ui.moFrom)&&okDate(ui.moTo))){var p=moPeriod();ui.moFrom=(ui.moYm||moDefaultYm())+'-01';ui.moTo=lastDayOf(ui.moYm||moDefaultYm());}
+    render();},
+  'mo-apply':function(){
+    var f=($('moFrom')||{}).value,t=($('moTo')||{}).value;
+    if(!okDate(f)||!okDate(t)){toast('Enter both dates as YYYY-MM-DD, or pick them from the calendar.');return;}
+    if(t<f){toast('The end date is before the start date.');return;}
+    if(daysBetween(f,t)>62){toast('Choose a period of two months or less.');return;}
+    ui.moFrom=f;ui.moTo=t;render();},
+  'mo-print':function(){if(session.role==='admin')moReport();},
   'ov-apply':function(){
     var f=($('ovFrom')||{}).value,t=($('ovTo')||{}).value;
     if(!okDate(f)||!okDate(t)){toast('Enter both dates as YYYY-MM-DD, or pick them from the calendar.');return;}
@@ -5169,6 +5372,7 @@ document.addEventListener('change',function(e){
   if(t.id==='salMonth'&&okMonth(t.value)){ui.salYm=t.value;render();}
   if(t.id==='reportYear'&&t.value){ui.reportYear=t.value;render();}
   if(t.id==='ayEmp'&&t.value){ui.ayEmp=t.value;render();}
+  if(t.id==='moYm'&&t.value){ui.moYm=t.value;render();}
   if(t.id==='bpDriver'){bp.driver=t.value;bpRefresh();}
   if(t.id==='ayYear'&&t.value){ui.ayYear=t.value;render();}
 });
