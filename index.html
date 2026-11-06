@@ -645,7 +645,7 @@ function $(id){return document.getElementById(id);}
 
 /* ---------- data ---------- */
 var db=null, session=null, storageOk=true;
-var ui={page:'overview',status:'All',q:'',invFilter:'All',ym:TODAY.slice(0,7),reportYm:TODAY.slice(0,7),reportYear:TODAY.slice(0,4),dispDate:TODAY,drvPeriod:'Week',drvDate:TODAY,drvMonth:TODAY.slice(0,7),ovPeriod:'Week',ovDate:TODAY,ovMonth:TODAY.slice(0,7),ovYear:TODAY.slice(0,4),invQ:'',slipQ:'',rg:null,rgChip:'This Month',ov:null,ovChip:'This Week',drvQ:'',cusQ:'',dispQ:'',drFrom:'',drTo:'',drDisp:'',drvFrom:'',drvTo:'',payInvQ:'',payEmpQ:''};
+var ui={page:'overview',status:'All',q:'',invFilter:'All',ym:TODAY.slice(0,7),reportYm:TODAY.slice(0,7),reportYear:TODAY.slice(0,4),dispDate:TODAY,drvPeriod:'Week',drvDate:TODAY,drvMonth:TODAY.slice(0,7),ovPeriod:'Week',ovDate:TODAY,ovMonth:TODAY.slice(0,7),ovYear:TODAY.slice(0,4),invQ:'',slipQ:'',rg:null,rgChip:'This Month',ov:null,ovChip:'This Week',drvQ:'',cusQ:'',dispQ:'',drFrom:'',drTo:'',drBy:'drop',drDisp:'',drvFrom:'',drvTo:'',payInvQ:'',payEmpQ:''};
 
 /* ---------- shared database (Supabase) ---------- */
 var SB_URL='https://ppwhvoemfkuiwckudlhm.supabase.co';
@@ -676,6 +676,7 @@ function snapshot(){
   var terms=Object.assign({},db.empPay||{});
   db.employees.forEach(function(e){if(e.base!==undefined||e.commissionPct!==undefined)terms[e.id]={base:Number(e.base)||0,commissionPct:Number(e.commissionPct)||0};});
   if(Object.keys(terms).length)add('payroll','empPay',{v:terms});
+  if(db.dmonths&&Object.keys(db.dmonths).length)add('payroll','dmonths',{v:db.dmonths});
   db.loads.forEach(function(l){add('loads',l.id,l,[l.dispatcherId||'']);});
   db.invoices.forEach(function(i){
     var ids=[];i.loadIds.forEach(function(id){var l=getLoad(id);if(l&&l.dispatcherId&&ids.indexOf(l.dispatcherId)<0)ids.push(l.dispatcherId);});
@@ -821,6 +822,7 @@ function buildDb(rows){
     else if(r.coll==='payroll'&&r.id==='fx')d.fx=r.data.v||{};
     else if(r.coll==='payroll'&&r.id==='payAdj')d.payAdj=r.data.v||{};
     else if(r.coll==='payroll'&&r.id==='empPay')d.empPay=(r.data&&r.data.v)||{};
+    else if(r.coll==='payroll'&&r.id==='dmonths')d.dmonths=(r.data&&r.data.v)||{};
   });
   delete d.settings.pins;d.seeded=false;
   d.employees.forEach(function(e){
@@ -848,7 +850,11 @@ async function loadAll(bg){
     var fixed=0;db.loads.forEach(function(l){if(!l.bookedAt&&upd[l.id]){l.bookedAt=new Date(upd[l.id]).toISOString();fixed++;}});
     db.loads.forEach(function(l){var want='';if(l.status==='Paid'){var iv=l.invoiceId?getInv(l.invoiceId):null;want=iv&&iv.status==='Paid'&&iv.paidOn?String(iv.paidOn):(l.paidOn||'');}if((l.paidOn||'')!==want){l.paidOn=want;fixed++;}});
     if(fixed)setTimeout(persist,0);
+  }else{
+    /* dispatchers and sales agents cannot read payroll records: get the dispatch month dates */
+    try{var dmr=await sb.rpc('zulu_dispatch_months');if(!dmr.error&&dmr.data&&typeof dmr.data==='object')db.dmonths=dmr.data;}catch(e){}
   }
+  if(!ui._dmInit){ui._dmInit=1;var cy0=curYm();ui.ym=cy0;ui.reportYm=cy0;if(ui.drvMonth===TODAY.slice(0,7))ui.drvMonth=cy0;}
   await fetchDocs();
   loadsLite=[];profiles=[];
   if(session.role==='dispatcher'){
@@ -915,6 +921,9 @@ function doneLoads(d){return db.loads.filter(function(l){return l.driverId===d.i
 function drvStatus(d){return d.driverStatus&&DSTATUS.indexOf(d.driverStatus)>-1?d.driverStatus:(doneLoads(d).length?'Active':'In Loop');}
 function isDead(d){return drvStatus(d)==='Dead';}
 function deadMsg(d){var a=d&&d.salesAgentId?getEmp(d.salesAgentId):null;return (d?d.name:'Driver')+' marked Dead and removed from the lists'+(a?'. Added to '+a.name+'\'s Follow-ups.':'. No sales agent, so no follow-up was added.');}
+/* the day a driver first became Active (activeAt); shown to the dispatcher, the driver's sales agent, the admin and the accountant */
+function activeDay(d){return d&&d.activeAt?dayOf(d.activeAt):'';}
+function activeNote(d){var a=activeDay(d);return a?'<div class="muted small">Active since '+fmtD(a)+'</div>':'';}
 function stPill(st){return '<span class="pill '+({Active:'p-paid','In Loop':'p-transit','Not Responding':'p-noresp',Dead:'p-overdue'}[st]||'p-booked')+'">'+esc(st)+'</span>';}
 function awaitingDisp(d){return !d.dispatcherId&&!isDead(d);}
 function drvInvStats(d){
@@ -950,7 +959,7 @@ function pSalesHome(){
       return '<tr'+(st==='Dead'?' class="quiet"':'')+'><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier||'')+(d.mc?' · '+esc(d.mc):'')+'</span></div></td>'+
         '<td class="small">'+esc(d.truckType||'—')+'</td>'+
         '<td>'+(d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):'<span class="pill p-delivered">Awaiting dispatcher</span>')+'</td>'+
-        '<td>'+stPill(st)+'</td><td class="num">'+doneLoads(d).length+'</td>'+
+        '<td>'+stPill(st)+activeNote(d)+'</td><td class="num">'+doneLoads(d).length+'</td>'+
         '<td class="num">'+s.paid+'<div class="muted small">'+money(s.paidAmt)+'</div></td>'+
         '<td class="num">'+s.pend+'<div class="muted small">'+money(s.pendAmt)+'</div></td>'+
         '<td class="num">'+(s.over?'<b style="color:var(--bad)">'+s.over+'</b>':'0')+'<div class="muted small">'+money(s.overAmt)+'</div></td>'+
@@ -974,6 +983,7 @@ function driverInfo(id){
       row('Accessories',accList(d).length?esc(accList(d).join(', ')):'—')+
       row('Sales agent',esc(d.salesAgentId?nm(getEmp(d.salesAgentId)):'—'))+row('Dispatcher',esc(d.dispatcherId?nm(getEmp(d.dispatcherId)):'Not assigned yet'))+
       row('Added',d.addedAt?fmtD(dayOf(d.addedAt))+(d.addedBy?' by '+esc(d.addedBy):''):'—')+
+      row('Active date',activeDay(d)?fmtD(activeDay(d)):(st==='Active'?'<span class="muted">Not recorded yet'+(session.role==='admin'||session.role==='accountant'?' · add it with Edit':'')+'</span>':'<span class="muted">Not active yet</span>'))+
       row('Status since',d.statusAt?fmtD(dayOf(d.statusAt))+(d.statusBy?' by '+esc(d.statusBy):''):'—')+
     '</div>'+(d.notes?'<div class="foot" style="white-space:pre-wrap"><b>Notes</b>\n'+esc(d.notes)+'</div>':'')+'</div>'+
     '<div class="stats">'+statTile('Loads completed',String(done.length),done.length?'first on '+fmtD(done.map(function(l){return l.delivery;}).sort()[0]):'none yet')+
@@ -1062,7 +1072,7 @@ async function saveSalesDriver(f){
 function setDriverStatus(id,st){
   return sb.rpc('zulu_set_driver_status',{p_driver:id,p_status:st}).then(function(r){
     if(r.error){toast(r.error.message);return;}
-    var d=getDrv(id);if(d&&r.data){Object.assign(d,r.data);var k='drivers|'+id;if(synced[k]!==undefined){var s=snapshot()[k];if(s)synced[k]=s.sig;}}
+    var d=getDrv(id);if(d&&r.data){Object.assign(d,r.data);if(st==='Active'&&!d.activeAt)d.activeAt=d.statusAt||new Date().toISOString();var k='drivers|'+id;if(synced[k]!==undefined){var s=snapshot()[k];if(s)synced[k]=s.sig;}}
     if(st==='Dead'){toast(deadMsg(d));if(!$('modal').hidden)closeModal();render();return;}
     toast((d?d.name:'Driver')+' marked '+st);
     if(!$('modal').hidden&&d)driverInfo(id);render();
@@ -1072,13 +1082,15 @@ function setDriverStatus(id,st){
 /* sales reports (admin / accountant) */
 function srRange(){
   var p=ui.srPeriod||'This Month',t=TODAY;
+  if(p==='Month'&&ui.srYm)return Object.assign({p:p},monthLbl(ui.srYm));
   if(p==='Today')return {p:p,start:t,end:t,label:fmtD(t)};
   if(p==='This Week'){var w=weekRange(t);return {p:p,start:w.start,end:w.end,label:fmtD(w.start)+' to '+fmtD(w.end)};}
   if(p==='Custom Range'){var a=ui.srFrom||t.slice(0,7)+'-01',b=ui.srTo||t;return {p:p,start:a,end:b,label:fmtD(a)+' to '+fmtD(b)};}
-  var s=t.slice(0,7)+'-01';return {p:'This Month',start:s,end:lastDayOf(t.slice(0,7)),label:ymLabel(t.slice(0,7))};
+  var cm=ymOfDate(t);return {p:'This Month',start:mFrom(cm),end:mTo(cm),label:dmLabel(cm)};
 }
 function salesStats(agentId,r){
-  var drv=db.drivers.filter(function(d){return d.salesAgentId===agentId;}),ids={};drv.forEach(function(d){ids[d.id]=1;});
+  /* the admin and accountant see only Active and In Loop drivers here (not Not Responding or Dead) */
+  var drv=db.drivers.filter(function(d){var st=drvStatus(d);return d.salesAgentId===agentId&&(st==='Active'||st==='In Loop');}),ids={};drv.forEach(function(d){ids[d.id]=1;});
   var o={total:drv.length,added:0,Active:0,'In Loop':0,'Not Responding':0,Dead:0,activated:0,died:0,loads:0,fees:0,drivers:drv};
   var inR=function(iso){var x=dayOf(iso);return x&&x>=r.start&&x<=r.end;};
   drv.forEach(function(d){o[drvStatus(d)]++;if(inR(d.addedAt))o.added++;if(inR(d.activeAt))o.activated++;if(drvStatus(d)==='Dead'&&inR(d.deadAt))o.died++;});
@@ -1090,32 +1102,32 @@ function pSalesReports(){
   var shown=agents.filter(function(a){return !sel||a.id===sel;});
   var T={total:0,added:0,Active:0,'In Loop':0,'Not Responding':0,Dead:0,activated:0,died:0,loads:0,fees:0};
   var rows=shown.map(function(a){var s=salesStats(a.id,r);Object.keys(T).forEach(function(k){T[k]+=s[k];});
-    return '<tr><td><b>'+esc(a.name)+'</b></td><td class="num">'+s.total+'</td><td class="num"><b>'+s.added+'</b></td><td class="num">'+s.Active+'</td><td class="num">'+s['In Loop']+'</td><td class="num">'+s['Not Responding']+'</td><td class="num">'+s.Dead+'</td><td class="num">'+s.activated+'</td><td class="num">'+s.died+'</td><td class="num">'+s.loads+'</td><td class="num">'+money(s.fees)+'</td>'+
+    return '<tr><td><b>'+esc(a.name)+'</b></td><td class="num">'+s.total+'</td><td class="num"><b>'+s.added+'</b></td><td class="num">'+s.Active+'</td><td class="num">'+s['In Loop']+'</td><td class="num">'+s.activated+'</td><td class="num">'+s.loads+'</td><td class="num">'+money(s.fees)+'</td>'+
       '<td><div class="rowact"><button class="btn sm'+(sel===a.id?' primary':'')+'" type="button" data-action="sr-agent" data-id="'+a.id+'">'+(sel===a.id?'Showing':'View drivers')+'</button></div></td></tr>';}).join('');
   T.fees=r2(T.fees);
   var chips=['Today','This Week','This Month','Custom Range'].map(function(p){return '<button class="chip" type="button" data-action="sr-period" data-p="'+p+'" aria-pressed="'+(r.p===p)+'">'+p+'</button>';}).join('');
   var custom=r.p==='Custom Range'?'<div class="ovdates"><label>Start date '+dateInput('srFrom','',r.start,'date','aria-label="Start date"')+'</label><label>End date '+dateInput('srTo','',r.end,'date','aria-label="End date"')+'</label><button class="btn primary sm" type="button" data-action="sr-apply">Apply Filter</button></div>':'';
   var detail='';
   if(sel){var a=getEmp(sel),s=salesStats(sel,r);
-    detail='<section class="panel"><header><div><h2>'+esc(a?a.name:'')+': drivers</h2><div class="muted small">'+plural(s.total,'driver')+' brought in · loads and fees for '+esc(r.label)+'</div></div><button class="btn sm" type="button" data-action="sr-agent" data-id="">Show all agents</button></header>'+
+    detail='<section class="panel"><header><div><h2>'+esc(a?a.name:'')+': drivers</h2><div class="muted small">'+plural(s.total,'Active or In Loop driver')+' · loads and fees for '+esc(r.label)+'</div></div><button class="btn sm" type="button" data-action="sr-agent" data-id="">Show all agents</button></header>'+
       (s.drivers.length?'<div class="tablewrap"><table style="min-width:860px"><thead><tr><th>Driver</th><th>Status</th><th>Dispatcher</th><th>Added</th><th class="num">Loads done (period)</th><th class="num">Dispatch fees (period)</th><th></th></tr></thead><tbody>'+
-        s.drivers.filter(function(d){return !isDead(d);}).sort(function(x,y){return DSTATUS.indexOf(drvStatus(x))-DSTATUS.indexOf(drvStatus(y))||String(x.name).localeCompare(String(y.name));}).map(function(d){
+        s.drivers.slice().sort(function(x,y){return DSTATUS.indexOf(drvStatus(x))-DSTATUS.indexOf(drvStatus(y))||String(x.name).localeCompare(String(y.name));}).map(function(d){
           var ls=doneLoads(d).filter(function(l){return loadDay(l)>=r.start&&loadDay(l)<=r.end;});
-          return '<tr'+(isDead(d)?' class="quiet"':'')+'><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier||'')+(d.mc?' · '+esc(d.mc):'')+'</span></div></td><td>'+stPill(drvStatus(d))+'</td><td>'+(d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):'<span class="pill p-delivered">Awaiting dispatcher</span>')+'</td><td class="small">'+(d.addedAt?fmtD(dayOf(d.addedAt)):'—')+'</td><td class="num">'+ls.length+'</td><td class="num">'+money(r2(sumBy(ls,loadFee)))+'</td><td><div class="rowact"><button class="btn sm" type="button" data-action="driver-info" data-id="'+d.id+'">Details</button></div></td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">This agent has not brought in any drivers yet.</div>')+'</section>';
+          return '<tr'+(isDead(d)?' class="quiet"':'')+'><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier||'')+(d.mc?' · '+esc(d.mc):'')+'</span></div></td><td>'+stPill(drvStatus(d))+activeNote(d)+'</td><td>'+(d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):'<span class="pill p-delivered">Awaiting dispatcher</span>')+'</td><td class="small">'+(d.addedAt?fmtD(dayOf(d.addedAt)):'—')+'</td><td class="num">'+ls.length+'</td><td class="num">'+money(r2(sumBy(ls,loadFee)))+'</td><td><div class="rowact"><button class="btn sm" type="button" data-action="driver-info" data-id="'+d.id+'">Details</button></div></td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">This agent has not brought in any drivers yet.</div>')+'</section>';
   }
   return head('Sales reports','Drivers each sales agent brought in, and how they are doing · '+r.label)+
-  '<div class="ovbar"><div class="chips">'+chips+'</div>'+custom+'<label class="field" style="grid-template-columns:auto 220px;align-items:center;gap:10px;margin-left:auto"><span>Sales agent</span><select id="srAgentSel" aria-label="Filter by sales agent"><option value="">All sales agents</option>'+agents.map(function(a){return '<option value="'+esc(a.id)+'"'+(sel===a.id?' selected':'')+'>'+esc(a.name)+'</option>';}).join('')+'</select></label></div>'+
+  '<div class="ovbar"><div class="chips">'+chips+'</div>'+monthPick('sr',r.p==='Month'?ui.srYm:'')+custom+'<label class="field" style="grid-template-columns:auto 220px;align-items:center;gap:10px;margin-left:auto"><span>Sales agent</span><select id="srAgentSel" aria-label="Filter by sales agent"><option value="">All sales agents</option>'+agents.map(function(a){return '<option value="'+esc(a.id)+'"'+(sel===a.id?' selected':'')+'>'+esc(a.name)+'</option>';}).join('')+'</select></label></div>'+
   '<div class="stats five" id="srTotals">'+
     statTile('Drivers added',String(T.added),'in '+r.label)+
     statTile('Active drivers',String(T.Active),T.activated+' became active in this period')+
     statTile('In-Loop drivers',String(T['In Loop']),'no completed load yet')+
-    statTile('Not responding',String(T['Not Responding']),'not answering their dispatcher')+
-    statTile('Dead sales',String(T.Dead),T.died+' marked dead in this period')+
+    statTile('Loads done',String(T.loads),'in '+r.label)+
+    statTile('Dispatch fees',money(T.fees),'on those loads')+
   '</div>'+
-  '<section class="panel">'+(agents.length?'<div class="pad muted small" style="padding-bottom:0">• counts only what happened in '+esc(r.label)+'. The other columns show each driver\'s status today.</div><div class="tablewrap"><table style="min-width:1000px"><thead><tr><th>Sales agent</th><th class="num">Drivers</th><th class="num">Added •</th><th class="num">Active</th><th class="num">In Loop</th><th class="num">Not responding</th><th class="num">Dead</th><th class="num">Became active •</th><th class="num">Marked dead •</th><th class="num">Loads done •</th><th class="num">Fees •</th><th></th></tr></thead><tbody>'+rows+
-    (shown.length>1?'<tr class="total"><td>All sales agents</td><td class="num">'+T.total+'</td><td class="num">'+T.added+'</td><td class="num">'+T.Active+'</td><td class="num">'+T['In Loop']+'</td><td class="num">'+T['Not Responding']+'</td><td class="num">'+T.Dead+'</td><td class="num">'+T.activated+'</td><td class="num">'+T.died+'</td><td class="num">'+T.loads+'</td><td class="num">'+money(T.fees)+'</td><td></td></tr>':'')+
+  '<section class="panel">'+(agents.length?'<div class="pad muted small" style="padding-bottom:0">• counts only what happened in '+esc(r.label)+'. The other columns show each driver\'s status today.</div><div class="tablewrap"><table style="min-width:1000px"><thead><tr><th>Sales agent</th><th class="num">Drivers</th><th class="num">Added •</th><th class="num">Active</th><th class="num">In Loop</th><th class="num">Became active •</th><th class="num">Loads done •</th><th class="num">Fees •</th><th></th></tr></thead><tbody>'+rows+
+    (shown.length>1?'<tr class="total"><td>All sales agents</td><td class="num">'+T.total+'</td><td class="num">'+T.added+'</td><td class="num">'+T.Active+'</td><td class="num">'+T['In Loop']+'</td><td class="num">'+T.activated+'</td><td class="num">'+T.loads+'</td><td class="num">'+money(T.fees)+'</td><td></td></tr>':'')+
     '</tbody></table></div>':'<div class="empty">No sales agents yet. Add them on the Team page with the title Sales agent.</div>')+'</section>'+detail+
-  '<p class="muted small" style="margin:0">Active, In Loop, Not responding and Dead show each driver\'s status today. "Added", "became active", "marked dead", loads and fees count only what happened in the chosen period. Drivers added before the Sales section existed count in the totals but not in "Added".</p>';
+  '<p class="muted small" style="margin:0">Only Active and In Loop drivers are shown here; Not responding and Dead drivers are left out of every count. Active and In Loop show each driver\'s status today. "Added", "became active", loads and fees count only what happened in the chosen period. Drivers added before the Sales section existed count in the totals but not in "Added".</p>';
 }
 
 /* ---------- follow-ups (private to each sales agent) ---------- */
@@ -1191,10 +1203,11 @@ function drFormHtml(r,date){
 }
 function myDrRange(){
   var p=ui.mdPeriod||'This Month',t=coToday();
+  if(p==='Month'&&ui.mdYm)return Object.assign({p:p},monthLbl(ui.mdYm));
   if(p==='This Week'){var w=weekRange(t);return {p:p,start:w.start,end:w.end,label:fmtD(w.start)+' to '+fmtD(w.end)};}
   if(p==='All')return {p:p,start:'0000-00-00',end:'9999-99-99',label:'all reports'};
   if(p==='Custom Range'){var a=ui.mdFrom||t.slice(0,7)+'-01',b=ui.mdTo||t;return {p:p,start:a,end:b,label:fmtD(a)+' to '+fmtD(b)};}
-  return {p:'This Month',start:t.slice(0,7)+'-01',end:lastDayOf(t.slice(0,7)),label:ymLabel(t.slice(0,7))};
+  var cm=ymOfDate(t);return {p:'This Month',start:mFrom(cm),end:mTo(cm),label:dmLabel(cm)};
 }
 function pDailyReport(){
   var rg=myDrRange();
@@ -1206,7 +1219,7 @@ function pDailyReport(){
   return head('Daily report','Fill this in at the end of each working day. The admin and accountant are notified.')+
   (today?'':'<div class="panel small" style="border-left:4px solid #b26b00;padding:10px 14px"><b>Today\'s report has not been submitted yet.</b></div>')+
   '<section class="panel"><header><div><h2>'+(cur?'Report for '+esc(fmtD(date)):'New report')+'</h2></div></header><div class="pad">'+drFormHtml(cur,date)+'</div></section>'+
-  '<section class="panel" id="myReportsPanel"><header><div><h2>My reports</h2><div class="muted small">'+plural(list.length,'report')+' · '+esc(rg.label)+'</div></div><div class="ovbar" style="margin:0"><div class="chips">'+chips+'</div>'+custom+'</div></header>'+
+  '<section class="panel" id="myReportsPanel"><header><div><h2>My reports</h2><div class="muted small">'+plural(list.length,'report')+' · '+esc(rg.label)+'</div></div><div class="ovbar" style="margin:0"><div class="chips">'+chips+'</div>'+monthPick('md',rg.p==='Month'?ui.mdYm:'')+custom+'</div></header>'+
   '<div class="stats" id="myDrTotals" style="border:0;border-radius:0;border-bottom:1px solid var(--line)">'+statTile('Total calls',NUM.format(T.calls),plural(T.sheets,'sheet')+' worked')+statTile('Total pickups',NUM.format(T.pickups),T.calls?Math.round(T.pickups/T.calls*100)+'% of calls answered':'—')+statTile('Total sales',NUM.format(T.sales),T.pickups?Math.round(T.sales/T.pickups*100)+'% of pickups':'—')+statTile('Reports',String(list.length),esc(rg.label))+'</div>'+
   (list.length?'<div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Date</th><th class="num">Sheets</th><th class="num">Calls</th><th class="num">Pickups</th><th class="num">Pickup rate</th><th class="num">Sales</th><th>Submitted</th><th></th></tr></thead><tbody>'+
     list.map(function(r){return '<tr><td><b>'+fmtD(r.date)+'</b></td><td class="num">'+esc(r.startSheet)+'–'+esc(r.endSheet)+' <span class="muted small">('+sheetsOf(r)+')</span></td><td class="num">'+NUM.format(r.calls||0)+'</td><td class="num">'+NUM.format(r.pickups||0)+'</td><td class="num">'+pickRate(r)+'</td><td class="num"><b>'+NUM.format(r.sales||0)+'</b></td><td class="small">'+esc(fmtStamp(r.submittedAt))+(r.editedAt?' <span class="muted">(edited)</span>':'')+'</td>'+
@@ -1245,8 +1258,9 @@ function viewDailyReport(id){
 }
 function sdRange(){
   var p=ui.sdPeriod||'This Week',t=coToday();
+  if(p==='Month'&&ui.sdYm)return Object.assign({p:p},monthLbl(ui.sdYm));
   if(p==='Today')return {p:p,start:t,end:t,label:fmtD(t)};
-  if(p==='This Month')return {p:p,start:t.slice(0,7)+'-01',end:lastDayOf(t.slice(0,7)),label:ymLabel(t.slice(0,7))};
+  if(p==='This Month'){var cm=ymOfDate(t);return {p:p,start:mFrom(cm),end:mTo(cm),label:dmLabel(cm)};}
   if(p==='Custom Range'){var a=ui.sdFrom||t,b=ui.sdTo||t;return {p:p,start:a,end:b,label:fmtD(a)+' to '+fmtD(b)};}
   var w=weekRange(t);return {p:'This Week',start:w.start,end:w.end,label:fmtD(w.start)+' to '+fmtD(w.end)};
 }
@@ -1259,7 +1273,7 @@ function pSalesDaily(){
   var chips=['Today','This Week','This Month','Custom Range'].map(function(p){return '<button class="chip" type="button" data-action="sd-period" data-p="'+p+'" aria-pressed="'+(r.p===p)+'">'+p+'</button>';}).join('');
   var custom=r.p==='Custom Range'?'<div class="ovdates"><label>Start date '+dateInput('sdFrom','',r.start,'date','aria-label="Start date"')+'</label><label>End date '+dateInput('sdTo','',r.end,'date','aria-label="End date"')+'</label><button class="btn primary sm" type="button" data-action="sd-apply">Apply Filter</button></div>':'';
   return head('Sales daily reports','What each sales agent did each day · '+r.label)+
-  '<div class="ovbar"><div class="chips">'+chips+'</div>'+custom+'<label class="field" style="grid-template-columns:auto 220px;align-items:center;gap:10px;margin-left:auto"><span>Sales agent</span><select id="sdAgentSel" aria-label="Filter by sales agent"><option value="">All sales agents</option>'+agents.map(function(a){return '<option value="'+esc(a.id)+'"'+(sel===a.id?' selected':'')+'>'+esc(a.name)+'</option>';}).join('')+'</select></label></div>'+
+  '<div class="ovbar"><div class="chips">'+chips+'</div>'+monthPick('sd',r.p==='Month'?ui.sdYm:'')+custom+'<label class="field" style="grid-template-columns:auto 220px;align-items:center;gap:10px;margin-left:auto"><span>Sales agent</span><select id="sdAgentSel" aria-label="Filter by sales agent"><option value="">All sales agents</option>'+agents.map(function(a){return '<option value="'+esc(a.id)+'"'+(sel===a.id?' selected':'')+'>'+esc(a.name)+'</option>';}).join('')+'</select></label></div>'+
   (missing.length?'<div class="panel small" style="border-left:4px solid #b26b00;padding:10px 14px"><b>No report yet today from:</b> '+missing.map(function(a){return esc(a.name);}).join(', ')+'</div>':'')+
   '<div class="stats" id="sdTotals">'+statTile('Reports',String(list.length),r.label)+statTile('Total calls',NUM.format(T.calls),plural(T.sheets,'sheet')+' worked')+statTile('Pickups',NUM.format(T.pickups),T.calls?Math.round(T.pickups/T.calls*100)+'% of calls answered':'—')+statTile('Sales',NUM.format(T.sales),T.pickups?Math.round(T.sales/T.pickups*100)+'% of pickups':'—')+'</div>'+
   '<section class="panel">'+(list.length?'<div class="tablewrap"><table style="min-width:980px"><thead><tr><th>Date</th><th>Sales agent</th><th class="num">Sheets</th><th class="num">Calls</th><th class="num">Pickups</th><th class="num">Sales</th><th>Difficulty faced</th><th>Today\'s learning</th><th></th></tr></thead><tbody>'+
@@ -2195,7 +2209,7 @@ document.addEventListener('keydown',function(e){if(!zvOpen())return;if(e.key==='
 
 
 /* ---------- Driver overview: search, monthly driver report, export ---------- */
-function dovMatch(d,q){return [d.name,d.carrier,d.mc,d.phone,d.email].join(' ').toLowerCase().indexOf(q)>-1;}
+function dovMatch(d,q){return [d.name,d.carrier,d.mc,d.phone,d.email,d.salesAgentId?nm(getEmp(d.salesAgentId)):''].join(' ').toLowerCase().indexOf(q)>-1;}
 var dovRpt=null;
 function csvCell(v){v=v==null?'':String(v);return /[",\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function csvDownload(name,rows){
@@ -2204,7 +2218,7 @@ function csvDownload(name,rows){
   var a=document.createElement('a');a.href=u;a.download=String(name).replace(/[\\\/:*?"<>|]+/g,'-')+'.csv';document.body.appendChild(a);a.click();a.remove();
   setTimeout(function(){URL.revokeObjectURL(u);},4000);
 }
-function dovMonthRange(ym){return {p:'Month',start:ym+'-01',end:lastDayOf(ym),label:ymLabel(ym)};}
+function dovMonthRange(ym){return {p:'Month',start:mFrom(ym),end:mTo(ym),label:dmLabel(ym)};}
 function dovDefaultYm(){var r=drvRange();return ui.drvPeriod==='Month'&&ui.drvMonth?ui.drvMonth:String(r.end||TODAY).slice(0,7);}
 function dovRpt2(id,ym){
   var d=getDrv(id);if(!d)return null;
@@ -2224,7 +2238,7 @@ function dovReportOpen(id,ym){
     '<div class="empty">No loads for this driver in '+esc(x.r.label)+'.</div>';
   var fname='Driver report - '+(d.name||'driver')+' - '+x.r.label;
   openModal(sheetHead('Driver report')+
-    '<div class="toolbar" style="padding:0;border:0;gap:10px;flex-wrap:wrap"><label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px;margin:0"><span>Month</span>'+dateInput('dovRptMonth','',ym,'month','aria-label="Report month"')+'</label>'+
+    '<div class="toolbar" style="padding:0;border:0;gap:10px;flex-wrap:wrap"><label class="field" style="grid-template-columns:auto minmax(0,280px);align-items:center;gap:10px;margin:0"><span>Month</span>'+ymSelect('dovRptMonth',ym,' aria-label="Report month"')+'</label>'+
       '<span style="flex:1"></span><button class="btn sm" type="button" data-action="dov-rpt-csv">Download Excel (CSV)</button><button class="btn sm primary" type="button" data-action="print-doc" data-name="'+esc(fname)+'">Print / Save as PDF</button></div>'+
     '<div class="doc"><div class="top"><div><div class="lbl">Driver monthly report</div><div class="no">'+esc(x.r.label)+'</div></div><div style="text-align:right"><b>'+esc(s0.company)+'</b><div class="addr muted small">'+esc(s0.address||'')+'</div></div></div>'+
       '<div class="meta">'+row('Driver name',esc(d.name||'—'))+row('Company name',esc(d.carrier||'—'))+row('MC','<span class="mono">'+esc(d.mc||'—')+'</span>')+
@@ -2232,7 +2246,7 @@ function dovReportOpen(id,ym){
       '<div class="tablewrap"><table style="min-width:0;width:100%"><thead><tr><th class="num">Loads</th><th class="num">Delivered</th><th class="num">Loaded miles</th><th class="num">Deadhead miles</th><th class="num">Total miles</th><th class="num">Load revenue</th></tr></thead><tbody>'+
         '<tr><td class="num"><b>'+st.n+'</b></td><td class="num"><b>'+st.deliv+'</b></td><td class="num">'+NUM.format(st.loaded)+'</td><td class="num">'+NUM.format(st.dead)+'</td><td class="num"><b>'+NUM.format(x.total)+'</b></td><td class="num"><b>'+money(st.rev)+'</b></td></tr></tbody></table></div>'+
       '<h3 style="margin:14px 0 6px;font-size:1rem">Loads in '+esc(x.r.label)+'</h3>'+loadsTbl+
-      '<p class="muted small" style="margin:10px 0 0">Every load counts in the month of its pickup date. Delivered and load revenue count those loads once they are delivered. Generated '+esc(fmtD(TODAY))+'.</p>'+
+      '<p class="muted small" style="margin:10px 0 0">Every load counts in the month of its delivery date. Delivered and load revenue count those loads once they are delivered. Generated '+esc(fmtD(TODAY))+'.</p>'+
     '</div>',true);
 }
 function dovReportCsv(){
@@ -2251,11 +2265,11 @@ function dovTableCsv(){
   var drvs=db.drivers.filter(function(d){return !isDead(d)&&(!mine||d.dispatcherId===session.empId)&&(!dq||dovMatch(d,dq));});
   var list=drvs.map(function(d){return driverStats(d,r);}).sort(function(a,b){return b.fees-a.fees||b.n-a.n;});
   var rows=[[db.settings.company+' - Driver overview'],['Period',r.label],[],
-    ['Driver name','Company name','MC','Phone','Email','Loads','Delivered','Loaded miles','Deadhead miles','Total miles','Load revenue ($)']];
+    ['Driver name','Company name','MC','Phone','Email','Sales agent','Loads','Delivered','Loaded miles','Deadhead miles','Total miles','Load revenue ($)']];
   var t={n:0,deliv:0,loaded:0,dead:0,rev:0};
   list.forEach(function(x){var d=x.dr;t.n+=x.n;t.deliv+=x.deliv;t.loaded+=x.loaded;t.dead+=x.dead;t.rev+=x.rev;
-    rows.push([d.name||'',d.carrier||'',d.mc||'',d.phone||'',d.email||'',x.n,x.deliv,x.loaded,x.dead,x.loaded+x.dead,r2(x.rev).toFixed(2)]);});
-  rows.push(['Total','','','','',t.n,t.deliv,t.loaded,t.dead,t.loaded+t.dead,r2(t.rev).toFixed(2)]);
+    rows.push([d.name||'',d.carrier||'',d.mc||'',d.phone||'',d.email||'',d.salesAgentId?nm(getEmp(d.salesAgentId)):'',x.n,x.deliv,x.loaded,x.dead,x.loaded+x.dead,r2(x.rev).toFixed(2)]);});
+  rows.push(['Total','','','','','',t.n,t.deliv,t.loaded,t.dead,t.loaded+t.dead,r2(t.rev).toFixed(2)]);
   csvDownload('Driver overview - '+r.label,rows);
   toast('Table downloaded');
 }
@@ -2430,7 +2444,7 @@ function openNoteTarget(n){
 }
 
 function blank(){
-  return {v:6,expenses:[],fx:{},payAdj:{},empPay:{},seeded:false,seq:{invoice:0,payslip:0,payrun:0,load:10000},
+  return {v:6,expenses:[],fx:{},payAdj:{},empPay:{},dmonths:{},seeded:false,seq:{invoice:0,payslip:0,payrun:0,load:10000},
     settings:{timezone:'America/New_York',company:'ZULU Logistics',address:'Street address\nCity, ST 00000',phone:'',email:'',
       invTerms:7,payInstr:'Please pay the dispatch fee by ACH or check within the stated terms, referencing the invoice number.',
       pins:{admin:'1111',accountant:'2222'}},
@@ -2897,8 +2911,9 @@ function inWeek(s,w){return !!s&&s>=w.start&&s<=w.end;}
 function fmtShort(s){var p=parts(s);return new Date(p[0],p[1]-1,p[2]).toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 function weekLabel(w){return fmtShort(w.start)+' to '+fmtShort(w.end)+', '+w.end.slice(0,4);}
 function isDone(l){return l.status==='Delivered'||l.status==='Invoiced'||l.status==='Paid';}
-/* a load belongs to the month (or period) of its pickup date */
-function loadDay(l){return String((l&&(l.pickup||l.delivery))||'');}
+/* a load belongs to the week / month (or period) of the day the dispatcher marked it delivered
+   (older loads with no such day use their delivery date) */
+function loadDay(l){return String((l&&(l.deliveredOn||l.delivery||l.pickup))||'');}
 function onRoad(l,w){return l.status==='In transit'||(l.status==='Booked'&&(inWeek(l.pickup,w)||inWeek(l.delivery,w)));}
 function sumBy(a,f){return r2(a.reduce(function(s,x){return s+f(x);},0));}
 function plural(n,w){return n+' '+w+(n===1?'':'s');}
@@ -2958,11 +2973,11 @@ function driverWeek(wk){
     (rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Driver</th><th class="num">Loads</th><th class="num">Load revenue miles</th><th class="num">Deadhead miles</th><th class="num">Total miles</th><th class="num">Load revenue</th></tr></thead><tbody>'+rows+
     '<tr class="total"><td>Total</td><td class="num">'+t.n+'</td><td class="num">'+NUM.format(t.loaded)+'</td><td class="num">'+NUM.format(t.dead)+'</td><td class="num">'+NUM.format(t.loaded+t.dead)+'</td><td class="num">'+money(r2(t.rev))+'</td></tr></tbody></table></div>':'<div class="empty">No drivers or loads for you this week.</div>')+'</section>';
 }
-function myComMonth(ym){var sl=db.payslips.find(function(p){return p.empId===session.empId&&p.ym===ym;});var cs=comSet(session.empId,session.role==='sales',ym+'-01',lastDayOf(ym),sl||null);
+function myComMonth(ym){var sl=db.payslips.find(function(p){return p.empId===session.empId&&p.ym===ym;});var cs=comSet(session.empId,session.role==='sales',mFrom(ym),mTo(ym),sl||null);
   return {count:cs.loads.length,fees:sumBy(cs.loads,loadFee),late:cs.late.length,pending:cs.pending.length,pendingFees:sumBy(cs.pending,loadFee)};}
 /* loads delivered in the period whose invoice the driver has not paid yet: shown separately, not in gross */
 function myPendingPanel(from,to,pct,rate,label){
-  var sales=session.role==='sales',slip=from.slice(8)==='01'&&to===lastDayOf(from.slice(0,7))?db.payslips.find(function(p){return p.empId===session.empId&&p.ym===from.slice(0,7);}):null;
+  var sales=session.role==='sales',slip=from===mFrom(ymOfDate(from))&&to===mTo(ymOfDate(from))?db.payslips.find(function(p){return p.empId===session.empId&&p.ym===from.slice(0,7);}):null;
   var cs=comSet(session.empId,sales,from,to,slip||null),ls=cs.pending.slice().sort(function(a,b){return loadDay(a).localeCompare(loadDay(b));});
   if(!ls.length)return '';
   var fees=0,com=0;
@@ -2973,11 +2988,11 @@ function myPendingPanel(from,to,pct,rate,label){
     else if(inv)st=(invStatus(inv)==='Overdue'?'<span class="pill p-overdue">Overdue</span>':'<span class="pill p-sent">Invoice sent</span>')+'<div class="muted small">'+esc(inv.no||'')+(inv.due?' · due '+esc(fmtD(inv.due)):'')+'</div>';
     else st='<span class="pill p-sent">Invoice sent</span>';
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(fmtD(l.pickup))+'<div class="muted small">Drop-off '+esc(fmtD(l.delivery))+'</div></td><td>'+st+'</td><td class="num">'+money(f)+'</td><td class="num"><b>'+(rate?rs(Math.round(c*rate)):money(c))+'</b>'+(rate?'<div class="muted small">'+money(c)+'</div>':'')+'</td></tr>';}).join('');
-  return '<section class="panel" style="border-left:4px solid var(--warn)"><header><div><h2>Waiting for payment · '+plural(ls.length,'load')+'</h2><div class="muted small">Picked up in '+esc(label)+' and delivered, but the driver has not paid the invoice yet. This commission is <b>not</b> in your gross pay above; it is added to your payroll once the invoice is paid.</div></div></header>'+
+  return '<section class="panel" style="border-left:4px solid var(--warn)"><header><div><h2>Waiting for payment · '+plural(ls.length,'load')+'</h2><div class="muted small">Delivered in '+esc(label)+', but the driver has not paid the invoice yet. This commission is <b>not</b> in your gross pay above; it is added to your payroll once the invoice is paid.</div></div></header>'+
     '<div class="tablewrap"><table style="min-width:680px"><thead><tr><th>Load</th><th>Driver</th><th>Pickup</th><th>Invoice</th><th class="num">Dispatch fee</th><th class="num">Your commission ('+pct+'%)</th></tr></thead><tbody>'+rows+
     '<tr class="total"><td colspan="4">Waiting for payment</td><td class="num">'+money(r2(fees))+'</td><td class="num">'+(rate?rs(Math.round(com*rate)):money(r2(com)))+'</td></tr></tbody></table></div></section>';
 }
-function myMonth(ym){return mySums(function(l){return loadDay(l).slice(0,7)===ym;},{ym:ym});}
+function myMonth(ym){return mySums(function(l){return ymOfDate(loadDay(l))===ym;},{ym:ym});}
 function myRange(a,b){return mySums(function(l){var d=loadDay(l);return d>=a&&d<=b;},{});}
 function isMyLoad(l){return session.role==='sales'?((getDrv(l.driverId)||{}).salesAgentId===session.empId):l.dispatcherId===session.empId;}
 /* ---------- my salary (dispatcher / sales agent), same formula as Payroll ---------- */
@@ -3004,7 +3019,7 @@ function myPayEntries(from,to){
   return myEntCache[k];
 }
 /* the employee's own fines, advances, deductions and bonuses for the period, each with its reason */
-function myDedPanel(from,to,label){
+function myDedPanel(from,to,label,onlyYm){
   var c=myPayEntries(from,to);
   var head='<section class="panel" id="myDeductions" style="border-left:4px solid var(--bad);scroll-margin-top:90px"><header><div><h2>My fines and advances · '+esc(label)+'</h2><div class="muted small">Every fine, advance and deduction on your pay, with its reason.</div></div></header>';
   if(c.state==='error'){
@@ -3014,6 +3029,7 @@ function myDedPanel(from,to,label){
   if(!c.data)return head+'<div class="empty" style="padding:14px">Loading…</div></section>';
   var rows=[];
   (c.data.months||[]).forEach(function(m){
+    if(onlyYm&&m.ym!==onlyYm)return;
     var f=Math.round(Number(m.fines)||0),a=Math.round(Number(m.advance)||0);
     if(f>0)rows.push({sort:m.ym+'-99',when:ymLabel(m.ym),type:'Fine',why:m.fineNote||'No reason given',amt:-f});
     if(a>0)rows.push({sort:m.ym+'-99',when:ymLabel(m.ym),type:'Advance',why:'Taken off your '+ymLabel(m.ym)+' salary',amt:-a});
@@ -3032,14 +3048,14 @@ function myDedPanel(from,to,label){
     '<p class="muted small" style="margin:8px 14px 12px">Monthly fines and advances come off that month\'s payslip. Dated advances and deductions come off the payment that covers their date.</p></section>';
 }
 function mySalaryHtml(){
-  var ym=ui.salYm||TODAY.slice(0,7),e=getEmp(session.empId)||{title:session.role==='sales'?'Sales agent':'Dispatcher'};
+  var ym=ui.salYm||curYm(),e=getEmp(session.empId)||{title:session.role==='sales'?'Sales agent':'Dispatcher'};
   var agent=session.role==='sales',ms=myComMonth(ym);
   var slip=db.payslips.filter(function(p){return p.empId===session.empId&&p.ym===ym;}).sort(function(a,b){return String(b.issued||'').localeCompare(String(a.issued||''));})[0];
-  var custom=ui.salMode==='Custom Range',sFrom=ui.salFrom||TODAY.slice(0,7)+'-01',sTo=ui.salTo||TODAY;
+  var custom=ui.salMode==='Custom Range',sFrom=ui.salFrom||mFrom(curYm()),sTo=ui.salTo||TODAY;
   var chips='<div class="chips">'+['Month','Custom Range'].map(function(p){return '<button class="chip" type="button" data-action="sal-mode" data-p="'+p+'" aria-pressed="'+((p==='Custom Range')===custom)+'">'+p+'</button>';}).join('')+'</div>';
   var pick='<div class="ovbar" style="margin:0">'+chips+(custom?'<div class="ovdates"><label>Start date '+dateInput('salFrom','',sFrom,'date','aria-label="Start date"')+'</label><label>End date '+dateInput('salTo','',sTo,'date','aria-label="End date"')+'</label><button class="btn primary sm" type="button" data-action="sal-apply">Apply Filter</button></div>'
-    :'<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>Month</span>'+dateInput('salMonth','',ym,'month','')+'</label>')+'</div>';
-  var wrap=function(sub,body){return '<div class="rsec" id="mySalary"><div class="pagehead"><div><h2>My salary</h2><div class="sub">'+esc(custom?fmtD(sFrom)+' to '+fmtD(sTo):ymLabel(ym))+(sub?' · '+esc(sub):'')+'</div></div>'+pick+'</div>'+body+'</div>';};
+    :'<label class="field" style="grid-template-columns:auto minmax(0,280px);align-items:center;gap:10px"><span>Month</span>'+ymSelect('salMonth',ym,' aria-label="Dispatch month"')+'</label>')+'</div>';
+  var wrap=function(sub,body){return '<div class="rsec" id="mySalary"><div class="pagehead"><div><h2>My salary</h2><div class="sub">'+esc(custom?fmtD(sFrom)+' to '+fmtD(sTo):dmLabel(ym))+(sub?' · '+esc(sub):'')+'</div></div>'+pick+'</div>'+body+'</div>';};
   var line=function(k,d,v,cls){return '<tr'+(cls?' class="'+cls+'"':'')+'><td>'+k+'</td><td class="muted small">'+d+'</td><td class="num">'+v+'</td></tr>';};
   var tbl=function(rows){return '<section class="panel"><div class="tablewrap"><table style="min-width:560px"><tbody>'+rows+'</tbody></table></div></section>';};
   if(custom)return mySalaryRangeHtml(e,sFrom,sTo,wrap,line,tbl);
@@ -3049,7 +3065,7 @@ function mySalaryHtml(){
       dedNotice([{label:'Advance',amt:Math.round(Number(slip.advance)||0)},{label:'Fine',amt:Math.round(Number(slip.fines)||0),note:slip.fineNote||''}],slip.net)+
       '<div class="stats">'+statTile('Salary after advance & fines',rs(slip.net),'payslip '+(slip.no||'')+(slip.issued?' · issued '+fmtD(slip.issued):''))+statTile('Base pay',rs(slip.base||0),'for the month')+statTile('Commission',com,(slip.commissionPct||0)+'% of '+money(slip.feesUsd||0)+' dispatch fees')+statTile('Fines and advance',rs((slip.fines||0)+(slip.advance||0)),'taken off')+'</div>'+
       tbl(line('Base pay','',rs(slip.base||0))+line('Commission',(slip.commissionPct||0)+'% of '+money(slip.feesUsd||0)+' dispatch fees on '+plural(slip.loads||0,'load')+(slip.rate?' × Rs '+slip.rate+' per $':''),com)+
-        line('Gross pay','',rs(slip.gross),'total')+line('Fines',esc(slip.fineNote||''),slip.fines?'− '+rs(slip.fines):'—')+line('Advance','',slip.advance?'− '+rs(slip.advance):'—')+line('<b>Salary after advance &amp; fines</b>','This is the issued payslip. Open My payslips to download it.','<b>'+rs(slip.net)+'</b>','total'))+myDedPanel(ym+'-01',lastDayOf(ym),ymLabel(ym))+myPendingPanel(ym+'-01',lastDayOf(ym),Number(slip.commissionPct)||0,slip.rate||null,ymLabel(ym)));
+        line('Gross pay','',rs(slip.gross),'total')+line('Fines',esc(slip.fineNote||''),slip.fines?'− '+rs(slip.fines):'—')+line('Advance','',slip.advance?'− '+rs(slip.advance):'—')+line('<b>Salary after advance &amp; fines</b>','This is the issued payslip. Open My payslips to download it.','<b>'+rs(slip.net)+'</b>','total'))+myDedPanel(mFrom(ym),mTo(ym),dmLabel(ym),ym)+myPendingPanel(mFrom(ym),mTo(ym),Number(slip.commissionPct)||0,slip.rate||null,ymLabel(ym)));
   }
   var c=myPayInfo(ym);
   if(c.state==='error'){
@@ -3065,7 +3081,7 @@ function mySalaryHtml(){
   var gross=comRs==null?null:base+comRs,net=gross==null?null:gross-fines-adv;
   var baseNote=basis==='Monthly salary'?(base?'monthly salary':'no monthly base set'):basis==='Commission only'?'commission only, no base pay':'your '+basis.toLowerCase()+' base is paid through pay runs, not included here';
   var feeWord=agent?'dispatch fees on your drivers\' loads':'dispatch fees on your loads';
-  return wrap(ym===TODAY.slice(0,7)?'so far this month':'estimate',
+  return wrap(ym===curYm()?'so far this month':'estimate',
     dedNotice([{label:'Advance',amt:adv},{label:'Fine',amt:fines,note:d.fineNote||''}],net)+
     '<div class="stats">'+statTile('Salary after advance & fines',net==null?'—':rs(net),net==null?'exchange rate not set yet':'after fines and advance')+statTile('Base pay',rs(base),baseNote)+statTile('Commission',comRs==null?money(comUsd):rs(comRs),pct+'% of '+money(ms.fees)+' '+feeWord)+statTile('Fines and advance',rs(fines+adv),'taken off')+'</div>'+
     tbl(line('Base pay',esc(baseNote),rs(base))+
@@ -3073,7 +3089,7 @@ function mySalaryHtml(){
       (ms.pending?line('Waiting for payment',plural(ms.pending,'delivered load')+' · '+money(ms.pendingFees)+' dispatch fees. Commission is added once the driver pays the invoice.','—'):'')+
       line('Gross pay','',gross==null?'—':rs(gross),'total')+
       line('Fines',esc(d.fineNote||''),fines?'− '+rs(fines):'—')+line('Advance','',adv?'− '+rs(adv):'—')+
-      line('<b>Salary after advance &amp; fines</b>',rate==null?'The exchange rate for this month has not been set yet, so commission is shown in dollars.':'An estimate from loads paid so far. The final amount is on your payslip once it is issued.','<b>'+(net==null?'—':rs(net))+'</b>','total'))+myDedPanel(ym+'-01',lastDayOf(ym),ymLabel(ym))+myPendingPanel(ym+'-01',lastDayOf(ym),pct,rate,ymLabel(ym)));
+      line('<b>Salary after advance &amp; fines</b>',rate==null?'The exchange rate for this month has not been set yet, so commission is shown in dollars.':'An estimate from loads paid so far. The final amount is on your payslip once it is issued.','<b>'+(net==null?'—':rs(net))+'</b>','total'))+myDedPanel(mFrom(ym),mTo(ym),dmLabel(ym),ym)+myPendingPanel(mFrom(ym),mTo(ym),pct,rate,ymLabel(ym)));
 }
 function dedNotice(list,net){
   list=list.filter(function(x){return x.amt>0;});
@@ -3101,7 +3117,7 @@ function mySalaryRangeHtml(e,from,to,wrap,line,tbl){
   try{o=rangeCalc(me,from,to);}finally{db.fx=keepFx;db.payAdj=keepAdj;db.payitems=keepItems;}
   var agent=session.role==='sales',feeWord=agent?'dispatch fees on your drivers\' loads':'dispatch fees on your loads';
   var comRows=o.comRows.map(function(c){return line('Commission · '+esc(ymLabel(c.ym)),c.pct+'% of '+money(c.fees)+' '+feeWord+(c.rate==null?' (exchange rate not set yet)':' × Rs '+c.rate+' per $'),c.rs==null?money(r2(c.fees*c.pct/100)):rs(c.rs));}).join('');
-  var fullMonths=yms.filter(function(ym){return from<=ym+'-01'&&to>=lastDayOf(ym);});
+  var fullMonths=yms.filter(function(ym){return from<=mFrom(ym)&&to>=mTo(ym);});
   var fineNotes=fullMonths.map(function(ym){return infos[ym].fineNote;}).filter(Boolean).join(' · ');
   var itemNote=function(t){return o.items.filter(function(i){return i.type===t;}).map(function(i){return rs(i.amount)+' on '+fmtD(i.date)+(i.note?' ('+i.note+')':'');}).join(' · ');};
   var advNote=[itemNote('Advance')].concat(fullMonths.filter(function(ym){return Number(infos[ym].advance)>0;}).map(function(ym){return rs(infos[ym].advance)+' '+ymLabel(ym)+' advance';})).filter(Boolean).join(' · ');
@@ -3126,8 +3142,8 @@ function mySums(test,o){
 }
 function pMyReport(){
   var me=getEmp(session.empId),ym=ui.reportYm,yr=ui.reportYear;
-  var custom=ui.mrMode==='Custom Range',cFrom=ui.mrFrom||TODAY.slice(0,7)+'-01',cTo=ui.mrTo||TODAY;
-  var ms=custom?myRange(cFrom,cTo):myMonth(ym),period=custom?fmtD(cFrom)+' to '+fmtD(cTo):ymLabel(ym);
+  var custom=ui.mrMode==='Custom Range',cFrom=ui.mrFrom||mFrom(curYm()),cTo=ui.mrTo||TODAY;
+  var ms=custom?myRange(cFrom,cTo):myMonth(ym),period=custom?fmtD(cFrom)+' to '+fmtD(cTo):dmLabel(ym);
   var set={};set[TODAY.slice(0,4)]=1;set[yr]=1;
   db.loads.forEach(function(l){if(isMyLoad(l)&&loadDay(l))set[loadDay(l).slice(0,4)]=1;});
   var years=Object.keys(set).sort().reverse();
@@ -3138,7 +3154,7 @@ function pMyReport(){
   '<div class="rsec"><div class="pagehead"><div><h2>'+(custom?'Custom date range':'Month')+'</h2><div class="sub">'+esc(period)+'</div></div>'+
     '<div class="ovbar" style="margin:0"><div class="chips">'+['Month','Custom Range'].map(function(p){return '<button class="chip" type="button" data-action="mr-mode" data-p="'+p+'" aria-pressed="'+((p==='Custom Range')===custom)+'">'+p+'</button>';}).join('')+'</div>'+
     (custom?'<div class="ovdates"><label>Start date '+dateInput('mrFrom','',cFrom,'date','aria-label="Start date"')+'</label><label>End date '+dateInput('mrTo','',cTo,'date','aria-label="End date"')+'</label><button class="btn primary sm" type="button" data-action="mr-apply">Apply Filter</button></div>'
-      :'<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>Month</span>'+dateInput('reportMonth','',ym,'month','')+'</label>')+'</div></div>'+
+      :'<label class="field" style="grid-template-columns:auto minmax(0,280px);align-items:center;gap:10px"><span>Month</span>'+ymSelect('reportMonth',ym,' aria-label="Dispatch month"')+'</label>')+'</div></div>'+
   '<div class="stats">'+
     statTile('Loads delivered',String(ms.count),(custom?'from ':'in ')+period)+
     statTile('Load revenue',money(ms.rev),'total load rates')+
@@ -3152,8 +3168,7 @@ function pMyReport(){
 /* ---------- driver overview ---------- */
 function rangeOf(p,date,month){
   if(p==='Week'){var w=weekRange(date);return {p:p,start:w.start,end:w.end,label:'Week of '+weekLabel(w)};}
-  var pp=parts(month+'-01'),last=new Date(pp[0],pp[1],0).getDate();
-  return {p:p,start:month+'-01',end:month+'-'+pad(last),label:ymLabel(month)};
+  return {p:p,start:mFrom(month),end:mTo(month),label:dmLabel(month)};
 }
 function driverStats(dr,r){
   var act=db.loads.filter(function(l){return l.driverId===dr.id&&inRange(loadDay(l),r);});
@@ -3173,9 +3188,9 @@ function pDriverOv(){
   var mine=session.role==='dispatcher',me=getEmp(session.empId);
   var r=drvRange();
   var picker=r.p==='Week'?'<div style="width:200px">'+dateInput('drvDate','',ui.drvDate,'date','aria-label="Any day in the week"')+'</div>':
-    r.p==='Month'?'<div style="width:200px">'+dateInput('drvMonth','',ui.drvMonth,'month','aria-label="Month"')+'</div>':
+    r.p==='Month'?'':
     '<div class="ovdates"><label>Start date '+dateInput('drvFrom','',r.start,'date','aria-label="Start date"')+'</label><label>End date '+dateInput('drvTo','',r.end,'date','aria-label="End date"')+'</label><button class="btn primary sm" type="button" data-action="drv-apply">Apply Filter</button></div>';
-  var controls='<div class="ovbar"><div class="chips">'+['Week','Month','Custom Range'].map(function(p){return '<button class="chip" type="button" data-action="drv-period" data-p="'+p+'" aria-pressed="'+(ui.drvPeriod===p)+'">'+p+'</button>';}).join('')+'</div>'+picker+'</div>';
+  var controls='<div class="ovbar"><div class="chips">'+['Week','Month','Custom Range'].map(function(p){return '<button class="chip" type="button" data-action="drv-period" data-p="'+p+'" aria-pressed="'+(ui.drvPeriod===p)+'">'+p+'</button>';}).join('')+'</div>'+monthPick('drv',ui.drvPeriod==='Month'?ui.drvMonth:'')+picker+'</div>';
   var drvs=db.drivers.filter(function(d){return !isDead(d)&&(!mine||d.dispatcherId===session.empId);});
   var dq=String(ui.dovQ||'').trim().toLowerCase();
   var shown=dq?drvs.filter(function(d){return dovMatch(d,dq);}):drvs;
@@ -3184,8 +3199,9 @@ function pDriverOv(){
   var rows=list.map(function(s){
     t.n+=s.n;t.deliv+=s.deliv;t.loaded+=s.loaded;t.dead+=s.dead;t.rev+=s.rev;t.fees+=s.fees;
     var d=s.dr;
-    return '<tr'+(s.n&&!isDead(d)?'':' class="quiet"')+'><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier)+'</span><span>'+stPill(drvStatus(d))+'</span></div></td>'+
+    return '<tr'+(s.n&&!isDead(d)?'':' class="quiet"')+'><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier)+'</span><span>'+stPill(drvStatus(d))+'</span>'+activeNote(d)+'</div></td>'+
       (mine?'':'<td>'+esc(d.dispatcherId?nm(getEmp(d.dispatcherId)):'—')+'</td>')+
+      '<td>'+(d.salesAgentId?esc(nm(getEmp(d.salesAgentId))):'<span class="muted">—</span>')+'</td>'+
       '<td class="num">'+s.n+'</td><td class="num">'+s.deliv+'</td><td class="num">'+NUM.format(s.loaded)+'</td><td class="num">'+NUM.format(s.dead)+'</td><td class="num"><b>'+NUM.format(s.loaded+s.dead)+'</b></td>'+
       '<td class="num">'+money(s.rev)+'</td><td class="num">'+money(s.fees)+'</td>'+
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="driver-info" data-id="'+d.id+'">Details</button><button class="btn sm" type="button" data-action="driver-detail" data-id="'+d.id+'">Loads</button><button class="btn sm primary" type="button" data-action="dov-report" data-id="'+d.id+'">Report</button>'+chatBtn(d.id)+docsBtn(d.id)+'</div></td></tr>';}).join('');
@@ -3197,12 +3213,12 @@ function pDriverOv(){
     statTile('Total miles',NUM.format(t.loaded+t.dead),NUM.format(t.dead)+' deadhead miles')+
     statTile('Dispatch fees',money(r2(t.fees)),'on '+money(r2(t.rev))+' load revenue')+
   '</div>'+
-  '<section class="panel"><header><div><h2>'+(mine?'My drivers':'Each driver')+'</h2><div class="muted small">'+(mine?'Drivers assigned to you as their dispatcher. ':'')+'Every load counts in the period of its pickup date. Revenue and fees count those loads once they are delivered.</div></div>'+
+  '<section class="panel"><header><div><h2>'+(mine?'My drivers':'Each driver')+'</h2><div class="muted small">'+(mine?'Drivers assigned to you as their dispatcher. ':'')+'Every load counts in the period of its delivery date. Revenue and fees count those loads once they are delivered.</div></div>'+
       '<button class="btn sm" type="button" data-action="dov-export"'+(list.length?'':' disabled')+'>Export table (Excel)</button></header>'+
-    '<div class="toolbar"><input id="dovSearch" class="searchbox" type="search" placeholder="Search driver name, company, MC or phone" value="'+esc(ui.dovQ||'')+'" aria-label="Search drivers"><button class="btn sm" type="button" data-action="dov-clear"'+(dq?'':' hidden')+'>Clear</button>'+(dq?'<span class="muted small">'+plural(list.length,'driver')+' found</span>':'')+'</div>'+
+    '<div class="toolbar"><input id="dovSearch" class="searchbox" type="search" placeholder="Search driver, company, MC, phone or sales agent" value="'+esc(ui.dovQ||'')+'" aria-label="Search drivers"><button class="btn sm" type="button" data-action="dov-clear"'+(dq?'':' hidden')+'>Clear</button>'+(dq?'<span class="muted small">'+plural(list.length,'driver')+' found</span>':'')+'</div>'+
     (dq&&!rows?'<div class="empty">No driver matches "'+esc(ui.dovQ)+'".</div>':'')+
-    (rows?'<div class="tablewrap"><table class="tight" style="min-width:'+(mine?780:860)+'px"><thead><tr><th>Driver</th>'+(mine?'':'<th>Dispatcher</th>')+'<th class="num">Loads</th><th class="num">Delivered</th><th class="num">Loaded miles</th><th class="num">Deadhead miles</th><th class="num">Total miles</th><th class="num">Load revenue</th><th class="num">Dispatch fees</th><th></th></tr></thead><tbody>'+rows+
-    '<tr class="total"><td>Total</td>'+(mine?'':'<td></td>')+'<td class="num">'+t.n+'</td><td class="num">'+t.deliv+'</td><td class="num">'+NUM.format(t.loaded)+'</td><td class="num">'+NUM.format(t.dead)+'</td><td class="num">'+NUM.format(t.loaded+t.dead)+'</td><td class="num">'+money(r2(t.rev))+'</td><td class="num">'+money(r2(t.fees))+'</td><td></td></tr></tbody></table></div>':dq?'':'<div class="empty">'+(mine?'No drivers are assigned to you yet. A driver appears here once you are chosen as their dispatcher on the Drivers page.':'No drivers yet. Add drivers on the Drivers page.')+'</div>')+'</section>';
+    (rows?'<div class="tablewrap"><table class="tight" style="min-width:'+(mine?880:960)+'px"><thead><tr><th>Driver</th>'+(mine?'':'<th>Dispatcher</th>')+'<th>Sales agent</th><th class="num">Loads</th><th class="num">Delivered</th><th class="num">Loaded miles</th><th class="num">Deadhead miles</th><th class="num">Total miles</th><th class="num">Load revenue</th><th class="num">Dispatch fees</th><th></th></tr></thead><tbody>'+rows+
+    '<tr class="total"><td>Total</td>'+(mine?'':'<td></td>')+'<td></td><td class="num">'+t.n+'</td><td class="num">'+t.deliv+'</td><td class="num">'+NUM.format(t.loaded)+'</td><td class="num">'+NUM.format(t.dead)+'</td><td class="num">'+NUM.format(t.loaded+t.dead)+'</td><td class="num">'+money(r2(t.rev))+'</td><td class="num">'+money(r2(t.fees))+'</td><td></td></tr></tbody></table></div>':dq?'':'<div class="empty">'+(mine?'No drivers are assigned to you yet. A driver appears here once you are chosen as their dispatcher on the Drivers page.':'No drivers yet. Add drivers on the Drivers page.')+'</div>')+'</section>';
 }
 function driverDetail(id){
   var d=getDrv(id);if(!d)return;
@@ -3223,18 +3239,57 @@ function ovPreset(name){
   if(name==='Today')return {from:t,to:t};
   if(name==='Yesterday'){var y=addDays(t,-1);return {from:y,to:y};}
   if(name==='This Week'){var w=weekRange(t);return {from:w.start,to:w.end};}
-  if(name==='Last Month'){var p=parts(t.slice(0,7)+'-01'),d=new Date(p[0],p[1]-2,1),ym=d.getFullYear()+'-'+pad(d.getMonth()+1);return {from:ym+'-01',to:lastDayOf(ym)};}
-  return {from:t.slice(0,7)+'-01',to:lastDayOf(t.slice(0,7))};
+  if(name==='Last Month'){var ly=ymAdd(ymOfDate(t),-1);return {from:mFrom(ly),to:mTo(ly)};}
+  var cy=ymOfDate(t);return {from:mFrom(cy),to:mTo(cy)};
 }
 function ovCurrent(){return ui.ov||ovPreset('This Week');}
 function ovRange(){
   var c=ovCurrent();
+  if(ui.ovChip==='Month'&&ui.ovYm)return {p:'Custom',start:c.from,end:c.to,label:dmLabel(ui.ovYm)};
   return {p:'Custom',start:c.from,end:c.to,label:(ui.ovChip!=='Custom Range'?ui.ovChip+' · ':'')+(c.from===c.to?fmtD(c.from):fmtD(c.from)+' to '+fmtD(c.to))};
 }
+/* pick a whole dispatch month (with its own dates) for the period */
+function ovMonthSel(){
+  var cy=curYm(),set={};for(var i=-12;i<=1;i++)set[ymAdd(cy,i)]=1;
+  db.loads.forEach(function(l){var d=loadDay(l);if(okDate(d))set[ymOfDate(d)]=1;});
+  var yms=Object.keys(set).sort().reverse(),on=ui.ovChip==='Month'?ui.ovYm:'';
+  return '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600">Month <select id="ovMonth" style="text-transform:none;letter-spacing:0;font-weight:400">'+
+    '<option value=""'+(on?'':' selected')+'>Choose a month</option>'+
+    yms.map(function(ym){return '<option value="'+ym+'"'+(ym===on?' selected':'')+'>'+esc(dmLabel(ym))+'</option>';}).join('')+'</select></label>';
+}
+/* the same "Month" dropdown everywhere: each dispatch month with its own dates */
+function ymChoices(extra){
+  var cy=curYm(),set={};for(var i=-12;i<=1;i++)set[ymAdd(cy,i)]=1;
+  db.loads.forEach(function(l){var d=loadDay(l);if(okDate(d))set[ymOfDate(d)]=1;});
+  (extra||[]).forEach(function(y){if(okMonth(y))set[y]=1;});
+  return Object.keys(set).sort().reverse();
+}
+function ymSelect(id,on,attrs,placeholder){
+  return '<select id="'+id+'"'+(attrs||'')+' style="text-transform:none;letter-spacing:0;font-weight:400;max-width:100%">'+
+    (placeholder?'<option value=""'+(on?'':' selected')+'>'+esc(placeholder)+'</option>':'')+
+    ymChoices(on?[on]:[]).map(function(ym){return '<option value="'+ym+'"'+(ym===on?' selected':'')+'>'+esc(dmLabel(ym))+'</option>';}).join('')+'</select>';
+}
+/* a "Month" picker that switches a page's period to a whole dispatch month; k names the period it sets (see MSET) */
+function monthPick(k,on){
+  return '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600">Month '+
+    ymSelect('ymk_'+k,on,' data-ymk="'+k+'" aria-label="Dispatch month"','Choose a month')+'</label>';
+}
+function monthLbl(ym){return {start:mFrom(ym),end:mTo(ym),label:dmLabel(ym)};}
+var MSET={
+  sr:function(ym){ui.srPeriod='Month';ui.srYm=ym;},
+  drv:function(ym){ui.drvPeriod='Month';ui.drvMonth=ym;},
+  sd:function(ym){ui.sdPeriod='Month';ui.sdYm=ym;},
+  md:function(ym){ui.mdPeriod='Month';ui.mdYm=ym;},
+  rg:function(ym){ui.rgChip='Month';ui.rgYm=ym;ui.rg={from:mFrom(ym),to:mTo(ym)};ui.ym=ym;},
+  dr:function(ym){ui.drFrom=mFrom(ym);ui.drTo=mTo(ym);ui.drYm=ym;},
+  bk:function(ym){ui.bkChip='Month';ui.bkYm=ym;ui.bkR={from:mFrom(ym),to:mTo(ym)};},
+  sp:function(ym){ui.spChip='Month';ui.spYm=ym;ui.spR={from:mFrom(ym),to:mTo(ym)};}
+};
 function ovBar(){
   var c=ovCurrent();
   return '<div class="ovbar"><div class="chips">'+['Today','Yesterday','This Week','This Month','Last Month','Custom Range'].map(function(n){
       return '<button class="chip" type="button" data-action="ov-chip" data-p="'+n+'" aria-pressed="'+(ui.ovChip===n)+'">'+n+'</button>';}).join('')+'</div>'+
+    ovMonthSel()+
     '<div class="ovdates"><label>Start date '+dateInput('ovFrom','',c.from,'date','aria-label="Start date"')+'</label><label>End date '+dateInput('ovTo','',c.to,'date','aria-label="End date"')+'</label>'+
     '<button class="btn primary sm" type="button" data-action="ov-apply">Apply Filter</button><button class="btn sm" type="button" data-action="ov-reset">Reset</button></div></div>';
 }
@@ -3260,11 +3315,11 @@ function makeExpense(id,date,type,note,amount,currency,rate){
 }
 function dual(usd,rsv){return money(usd)+' · '+rs(rsv);}
 /* ---------- Monthly Overview (admin only): dispatch fee, expenses, salaries, profit / loss ---------- */
-function moDefaultYm(){var d=new Date(TODAY+'T00:00:00');d.setDate(1);d.setMonth(d.getMonth()-1);return d.getFullYear()+'-'+pad(d.getMonth()+1);}
+function moDefaultYm(){return ymAdd(curYm(),-1);}
 function moPeriod(){
   if(ui.moMode==='Custom Range'&&okDate(ui.moFrom)&&okDate(ui.moTo))return {mode:'range',from:ui.moFrom,to:ui.moTo,label:fmtD(ui.moFrom)+' to '+fmtD(ui.moTo),ym:ui.moTo.slice(0,7)};
   var ym=/^\d{4}-\d{2}$/.test(ui.moYm||'')?ui.moYm:moDefaultYm();
-  return {mode:'month',ym:ym,from:ym+'-01',to:lastDayOf(ym),label:ymLabel(ym)};
+  return {mode:'month',ym:ym,from:mFrom(ym),to:mTo(ym),label:dmLabel(ym)};
 }
 function moComUsd(p){
   if(p.commissionUsd!=null)return Number(p.commissionUsd)||0;
@@ -3306,7 +3361,7 @@ function moCalc(per){
     profitRs:Math.round(incRs-exRs-salRs),final:over&&!missing.length&&staffIds.length>0,over:over,missing:missing};
 }
 function moChartSvg(year){
-  var data=[];for(var m=1;m<=12;m++){var ym=year+'-'+pad(m);data.push(Object.assign({m:m},moCalc({mode:'month',ym:ym,from:ym+'-01',to:lastDayOf(ym)})));}
+  var data=[];for(var m=1;m<=12;m++){var ym=year+'-'+pad(m);data.push(Object.assign({m:m},moCalc({mode:'month',ym:ym,from:mFrom(ym),to:mTo(ym)})));}
   var W=760,H=260,L=64,R=12,T=14,B=30,cw=(W-L-R)/12;
   var hi=Math.max.apply(null,data.map(function(d){return Math.max(d.incRs,d.exRs+d.salRs,d.profitRs);}).concat([1]));
   var lo=Math.min.apply(null,data.map(function(d){return d.profitRs;}).concat([0]));
@@ -3339,13 +3394,13 @@ function moStatus(c){
 function monthlyOverviewHtml(){
   if(!session||session.role!=='admin')return '';
   var per=moPeriod(),c=moCalc(per);
-  var yms=[];var set={};set[moDefaultYm()]=1;set[TODAY.slice(0,7)]=1;
+  var yms=[];var set={};set[moDefaultYm()]=1;set[curYm()]=1;
   db.invoices.forEach(function(i){if(i.paidOn)set[String(i.paidOn).slice(0,7)]=1;});db.expenses.forEach(function(e){if(e.date)set[String(e.date).slice(0,7)]=1;});db.payslips.forEach(function(p){if(p.ym)set[p.ym]=1;});
   yms=Object.keys(set).filter(function(x){return /^\d{4}-\d{2}$/.test(x);}).sort().reverse();
   var isR=per.mode==='range';
   var ctrl='<div class="ctrl"><div class="chips"><button class="chip" type="button" data-action="mo-mode" data-m="Month" aria-pressed="'+!isR+'">Month</button><button class="chip" type="button" data-action="mo-mode" data-m="Custom Range" aria-pressed="'+isR+'">Custom Range</button></div>'+
     (isR?'<label class="field"><span>From</span>'+dateInput('moFrom','',per.from,'date','aria-label="From"')+'</label><label class="field"><span>To</span>'+dateInput('moTo','',per.to,'date','aria-label="To"')+'</label><button class="btn sm primary" type="button" data-action="mo-apply">Show</button>'
-      :'<label class="field"><span>Month</span><select id="moYm">'+yms.map(function(ym){return '<option value="'+ym+'"'+(ym===per.ym?' selected':'')+'>'+esc(ymLabel(ym))+'</option>';}).join('')+'</select></label>')+
+      :'<label class="field"><span>Month</span><select id="moYm">'+yms.map(function(ym){return '<option value="'+ym+'"'+(ym===per.ym?' selected':'')+'>'+esc(dmLabel(ym))+'</option>';}).join('')+'</select></label>')+
     '<span style="flex:1"></span>'+moStatus(c)+'<button class="btn sm primary" type="button" data-action="mo-print">Print monthly report</button></div>';
   var tile=function(k,v,d,cls){return '<div class="tile'+(cls?' '+cls:'')+'"><span class="k">'+k+'</span><span class="v">'+v+'</span><span class="d">'+d+'</span></div>';};
   var pr=c.profitRs;
@@ -3411,7 +3466,7 @@ function pMonthlyReport(){
 }
 function pOverviewAdmin(asReport){
   var r=ovRange();
-  var loads=db.loads.filter(function(l){return inRange(l.pickup,r);});
+  var loads=db.loads.filter(function(l){return inRange(loadDay(l),r);});
   var sales=db.loads.filter(function(l){return isDone(l)&&inRange(loadDay(l),r);});
   var sent=db.invoices.filter(function(i){return inRange(i.issued,r);});
   var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inRange(i.paidOn,r);});
@@ -3431,7 +3486,7 @@ function pOverviewAdmin(asReport){
   var yr=r.start.slice(0,4),months=[];
   for(var m=1;m<=12;m++){
     var ym=yr+'-'+pad(m);
-    var ls=db.loads.filter(function(l){return isDone(l)&&loadDay(l).slice(0,7)===ym;});
+    var ls=db.loads.filter(function(l){return isDone(l)&&ymOfDate(loadDay(l))===ym;});
     months.push({m:m,ym:ym,n:ls.length,fees:sumBy(ls,loadFee)});
   }
   var maxF=Math.max.apply(null,months.map(function(x){return x.fees;}).concat([1]));
@@ -3453,7 +3508,7 @@ function pOverviewAdmin(asReport){
     '<section class="panel"><header><div><h2>Dispatch revenue and expenses</h2><div class="muted small">Choose the period for the two sections below: '+esc(r.label)+'</div></div></header><div style="padding:0 14px 14px">'+controls+'</div></section>'+
     ovRevenueHtml()+ovExpensesHtml();
   function ovStatsHtml(){return '<div class="stats">'+
-    statTile('No. of loads',String(loads.length),'booked with pickup in this period')+
+    statTile('No. of loads',String(loads.length),'with delivery in this period')+
     statTile('No. of sales',String(sales.length),'loads delivered in this period')+
     statTile('Invoices sent',String(sent.length),'issued in this period')+
     statTile('Active drivers',String(activeN),'of '+db.drivers.length+' drivers, with a load in this period')+
@@ -3489,7 +3544,7 @@ function yearsList(){
 }
 function expenseForm(e){
   var isNew=!e;
-  e=e||{id:'',date:TODAY,type:'Bill',note:'',amount:'',currency:'USD',rate:fxFor(TODAY.slice(0,7))||''};
+  e=e||{id:'',date:TODAY,type:'Bill',note:'',amount:'',currency:'USD',rate:fxFor(curYm())||''};
   openModal(sheetHead(isNew?'Add expense':'Edit expense')+
   '<form class="form" data-form="expense"><input type="hidden" name="id" value="'+esc(e.id)+'">'+
     field('Date','date',e.date,{type:'date',required:true})+
@@ -3508,6 +3563,7 @@ function loadRows(){
   return db.loads.filter(function(l){
     if(session&&session.role==='dispatcher'&&l.dispatcherId!==session.empId)return false;
     if(ui.status!=='All'&&l.status!==ui.status)return false;
+    if(ui.loadsYm&&!inRange(loadDay(l),monthLbl(ui.loadsYm)))return false;
     if(session.role!=='dispatcher'&&ui.dispQ.trim()&&nm(getEmp(l.dispatcherId)).toLowerCase().indexOf(ui.dispQ.trim().toLowerCase())<0)return false;
     if(!q)return true;
     var hay=[l.ref,l.origin,l.dest,nm(getDrv(l.driverId)),brokerName(l)].join(' ').toLowerCase();
@@ -3517,9 +3573,18 @@ function loadRows(){
 function canDelLoad(l){var locked=l.status==='Invoiced'||l.status==='Paid';if(session.role==='dispatcher')return !locked&&l.dispatcherId===session.empId;return session.role==='admin'||session.role==='accountant';}
 function loadsTableHtml(){
   var rows=loadRows();
-  if(!rows.length)return '<div class="empty">No loads match. Add one with the button above.</div>';
+  var sum='';
+  if(ui.loadsYm){
+    var dn=rows.filter(isDone),drs={};rows.forEach(function(l){drs[l.driverId]=1;});
+    sum='<div class="stats" style="border:0;border-radius:0;border-bottom:1px solid var(--line)">'+
+      statTile('Loads',String(rows.length),plural(dn.length,'delivered load')+' · '+dmLabel(ui.loadsYm))+
+      statTile('Drivers',String(Object.keys(drs).length),'with a load this month')+
+      statTile('Load rates',money(sumBy(dn,function(l){return l.rate;})),'delivered loads')+
+      statTile('Dispatch fees',money(sumBy(dn,loadFee)),'delivered loads')+'</div>';
+  }
+  if(!rows.length)return sum+'<div class="empty">'+(ui.loadsYm?'No loads in '+esc(dmLabel(ui.loadsYm))+'.':'No loads match. Add one with the button above.')+'</div>';
   var edit=can('editLoads');
-  return '<div class="tablewrap"><table><thead><tr><th>Load</th><th>Driver</th><th>Dispatcher</th><th>Broker</th><th>Route</th><th>Pickup / Drop-off</th><th class="num">Miles</th><th class="num">Load rate</th><th>Status / paperwork</th>'+(edit?'<th></th>':'')+'</tr></thead><tbody>'+
+  return sum+'<div class="tablewrap"><table><thead><tr><th>Load</th><th>Driver</th><th>Dispatcher</th><th>Broker</th><th>Route</th><th>Pickup / Drop-off</th><th class="num">Miles</th><th class="num">Load rate</th><th>Status / paperwork</th>'+(edit?'<th></th>':'')+'</tr></thead><tbody>'+
   rows.map(function(l){
     var locked=l.status==='Invoiced'||l.status==='Paid';
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td>'+
@@ -3527,7 +3592,7 @@ function loadsTableHtml(){
       '<td>'+esc(nm(getEmp(l.dispatcherId)))+'</td>'+
       '<td>'+brokerBtn(l,true)+'</td>'+
       '<td><div class="stack"><span>'+esc(l.origin)+'</span><span class="muted small">to '+esc(l.dest)+'</span></div></td>'+
-      '<td><div class="stack"><span>Pickup '+fmtD(l.pickup)+'</span><span class="muted small">Drop-off '+fmtD(l.delivery)+'</span></div></td>'+
+      '<td><div class="stack"><span>Pickup '+fmtD(l.pickup)+'</span><span class="muted small">Drop-off '+fmtD(l.delivery)+'</span>'+(l.deliveredOn&&l.deliveredOn!==l.delivery?'<span class="muted small">Marked delivered '+fmtD(l.deliveredOn)+'</span>':'')+'</div></td>'+
       '<td class="num">'+NUM.format(l.miles)+(l.deadhead?'<div class="muted small">+'+NUM.format(l.deadhead)+' deadhead</div>':'')+'</td>'+
       '<td class="num">'+money(l.rate)+'</td>'+
       '<td><div class="stack" style="gap:4px;justify-items:start">'+pill(l.status)+paperworkCell(l)+'</div></td>'+
@@ -3541,6 +3606,7 @@ function loadsTableHtml(){
 function pLoads(){
   return head('Loads','Every load, who hauled it and who it is billed to',can('editLoads')?'<button class="btn primary" type="button" data-action="new-load">Add load</button>':'')+
   '<section class="panel"><div class="toolbar"><div class="chips" id="statusChips">'+statusChips()+'</div>'+
+  '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600">Month '+ymSelect('loadsYm',ui.loadsYm||'',' aria-label="Dispatch month"','All months')+'</label>'+
   '<input id="loadSearch" type="search" placeholder="Search load, city, driver" value="'+esc(ui.q)+'" aria-label="Search loads">'+
   (session.role!=='dispatcher'?'<input id="dispFilter" type="search" list="dispList" placeholder="Filter by dispatcher name" value="'+esc(ui.dispQ)+'" aria-label="Filter loads by dispatcher"><datalist id="dispList">'+staff('Dispatcher').map(function(e){return '<option value="'+esc(e.name)+'"></option>';}).join('')+'</datalist><button class="btn sm" type="button" data-action="clear-disp">Clear dispatcher</button>':'')+'</div>'+
   '<div id="loadsBody">'+loadsTableHtml()+'</div></section>';
@@ -3664,8 +3730,10 @@ function pDrivers(){
   var edit=can('editDrivers'),inv=can('invoice');
   var dq=ui.drvQ.trim().toLowerCase();
   var dtab=ui.drvTab&&ui.drvTab!=='Dead'?ui.drvTab:'All',waitN=db.drivers.filter(awaitingDisp).length;
+  var dym=ui.drvYm||'',dmr=dym?monthLbl(dym):null,stOf={};
+  var mst=function(d){return stOf[d.id]||(stOf[d.id]=driverStats(d,dmr));};
   var rows=db.drivers.filter(function(d){return !isDead(d);}).filter(function(d){return !dq||String(d.name).toLowerCase().indexOf(dq)>-1||String(d.carrier||'').toLowerCase().indexOf(dq)>-1||String(d.mc||'').toLowerCase().indexOf(dq)>-1;}).filter(function(d){
-    return dtab==='All'||(dtab==='Awaiting dispatcher'?awaitingDisp(d):drvStatus(d)===dtab);}).sort(function(a,b){return (awaitingDisp(b)?1:0)-(awaitingDisp(a)?1:0)||(isDead(a)?1:0)-(isDead(b)?1:0);}).map(function(d){
+    return dtab==='All'||(dtab==='Awaiting dispatcher'?awaitingDisp(d):drvStatus(d)===dtab);}).filter(function(d){return !dym||mst(d).n>0;}).sort(function(a,b){return (dym?mst(b).rev-mst(a).rev||mst(b).n-mst(a).n:0)||(awaitingDisp(b)?1:0)-(awaitingDisp(a)?1:0)||(isDead(a)?1:0)-(isDead(b)?1:0);}).map(function(d){
     var ls=db.loads.filter(function(l){return l.driverId===d.id;});
     var ready=ls.filter(function(l){return l.status==='Delivered';});
     var readyAmt=r2(ready.reduce(function(a,l){return a+loadFee(l);},0));
@@ -3673,8 +3741,9 @@ function pDrivers(){
       '<td><div class="stack"><span class="mono">'+esc(d.mc)+'</span><span class="muted small">'+esc(d.phone)+'</span><span class="muted small">'+esc(d.email||'')+'</span></div></td>'+
       '<td>'+esc(d.salesAgentId?nm(getEmp(d.salesAgentId)):'—')+'</td>'+
       '<td>'+(d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):(isDead(d)?'—':'<span class="pill p-delivered">Awaiting dispatcher</span>'))+'</td>'+
-      '<td>'+stPill(drvStatus(d))+'</td>'+
-      '<td class="num">'+d.feePct+'%</td><td class="num">'+ls.length+'</td>'+
+      '<td>'+stPill(drvStatus(d))+activeNote(d)+'</td>'+
+      '<td class="num">'+d.feePct+'%</td><td class="num">'+(dym?'<b>'+mst(d).n+'</b><div class="muted small">'+mst(d).deliv+' delivered</div>':ls.length)+'</td>'+
+      (dym?'<td class="num"><b>'+money(mst(d).rev)+'</b><div class="muted small">'+money(mst(d).fees)+' dispatch fee</div></td>':'')+
       '<td class="num">'+(ready.length?money(readyAmt)+' <span class="muted small">('+ready.length+')</span>':'—')+'</td>'+
       '<td><div class="rowact"><button class="btn sm'+(awaitingDisp(d)&&edit?' primary':'')+'" type="button" data-action="'+(awaitingDisp(d)&&edit?'edit-driver':'driver-info')+'" data-id="'+d.id+'">'+(awaitingDisp(d)&&edit?'Review':'Details')+'</button>'+chatBtn(d.id)+docsBtn(d.id)+
         (inv&&ready.length?'<button class="btn sm primary" type="button" data-action="invoice-driver" data-id="'+d.id+'">Invoice ready loads</button>':'')+
@@ -3683,7 +3752,20 @@ function pDrivers(){
   var docNote=docsOk&&(dExp||dSoon)?'<div class="panel small" style="border-left:4px solid '+(dExp?'var(--bad)':'#b26b00')+';padding:10px 14px"><b>Documents need attention:</b> '+[dExp?plural(dExp,'document')+' expired':'',dSoon?plural(dSoon,'document')+' expiring within 30 days':''].filter(Boolean).join(' · ')+'. Open a driver\'s Documents to see which.</div>':'';
   return head('Drivers','Owner-operators and carriers you dispatch for',edit?'<button class="btn primary" type="button" data-action="new-driver">Add driver</button>':'')+
   docNote+(waitN?'<div class="panel small" style="border-left:4px solid #b26b00;padding:10px 14px"><b>'+plural(waitN,'new driver')+' from sales '+(waitN===1?'needs':'need')+' a dispatcher.</b> Click Review on the driver, check the details and documents, and choose a dispatcher. <button class="linkbtn" type="button" data-action="drv-tab" data-p="Awaiting dispatcher">Show them</button></div>':'')+
-  '<section class="panel"><div class="toolbar"><div class="chips">'+['All','Awaiting dispatcher','Active','In Loop','Not Responding'].map(function(t){return '<button class="chip" type="button" data-action="drv-tab" data-p="'+t+'" aria-pressed="'+(dtab===t)+'">'+t+'</button>';}).join('')+'</div></div><div class="toolbar"><input id="drvSearch" class="searchbox" type="search" placeholder="Search drivers by name or MC" value="'+esc(ui.drvQ)+'" aria-label="Search drivers"><button class="btn sm" type="button" data-action="clear-drvq">Clear</button></div>'+(rows?'<div class="tablewrap"><table><thead><tr><th>Driver</th><th>MC and contact</th><th>Sales agent</th><th>Dispatcher</th><th>Status</th><th class="num">Dispatch fee</th><th class="num">Loads</th><th class="num">Ready to invoice</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(ui.drvQ.trim()||dtab!=='All'?'No drivers match.':'No drivers yet. Add your first driver to start booking loads.')+'</div>')+'</section>';
+  '<section class="panel"><div class="toolbar"><div class="chips">'+['All','Awaiting dispatcher','Active','In Loop','Not Responding'].map(function(t){return '<button class="chip" type="button" data-action="drv-tab" data-p="'+t+'" aria-pressed="'+(dtab===t)+'">'+t+'</button>';}).join('')+'</div></div><div class="toolbar"><input id="drvSearch" class="searchbox" type="search" placeholder="Search drivers by name or MC" value="'+esc(ui.drvQ)+'" aria-label="Search drivers"><button class="btn sm" type="button" data-action="clear-drvq">Clear</button>'+
+    '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-left:auto">Month '+ymSelect('drvYm',dym,' aria-label="Dispatch month"','All months')+'</label></div>'+
+    (dym?drvMonthSum(dym,dmr,dtab,dq):'')+
+    (rows?'<div class="tablewrap"><table><thead><tr><th>Driver</th><th>MC and contact</th><th>Sales agent</th><th>Dispatcher</th><th>Status</th><th class="num">Dispatch fee</th><th class="num">'+(dym?'Loads (month)':'Loads')+'</th>'+(dym?'<th class="num">Earned (month)</th>':'')+'<th class="num">Ready to invoice</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(dym?'No driver had a load in '+esc(dmLabel(dym))+(ui.drvQ.trim()||dtab!=='All'?' that matches':'')+'.':ui.drvQ.trim()||dtab!=='All'?'No drivers match.':'No drivers yet. Add your first driver to start booking loads.')+'</div>')+'</section>';
+}
+/* Drivers page with a month chosen: how many drivers ran loads and what they earned */
+function drvMonthSum(ym,r,dtab,dq){
+  var ls=db.loads.filter(function(l){var d=getDrv(l.driverId);return inRange(loadDay(l),r)&&(!d||!isDead(d));});
+  var dn=ls.filter(isDone),drs={};ls.forEach(function(l){drs[l.driverId]=1;});
+  return '<div class="stats" style="border:0;border-radius:0;border-bottom:1px solid var(--line);border-top:1px solid var(--line)">'+
+    statTile('Drivers',String(Object.keys(drs).length),'ran a load in '+dmLabel(ym))+
+    statTile('Loads',String(ls.length),plural(dn.length,'delivered load'))+
+    statTile('Drivers earned',money(sumBy(dn,function(l){return l.rate;})),'load rates of delivered loads')+
+    statTile('Dispatch fees',money(sumBy(dn,loadFee)),'our share')+'</div>';
 }
 function driverForm(d){
   d=d||{id:'',name:'',carrier:'',mc:'',phone:'',email:'',feePct:7,salesAgentId:'',dispatcherId:session.role==='dispatcher'?session.empId:''};
@@ -3698,6 +3780,7 @@ function driverForm(d){
     field('Dispatcher','dispatcherId',d.dispatcherId||'',{type:'select',options:[['','None']].concat(staff('Dispatcher').map(function(e){return [e.id,e.name];})),hint:staff('Dispatcher').length?'Books this driver\'s loads and earns commission on them.':'No dispatchers yet. Add one on the Team page, then choose them here.'})+
     (d.id&&d.addedByRole==='sales'?'<p class="small full" style="margin:0;padding:8px 10px;background:var(--bg-2,#f4f6f8);border-radius:6px">Added by <b>'+esc(nm(getEmp(d.salesAgentId)))+'</b>'+(d.addedAt?' on '+fmtD(dayOf(d.addedAt)):'')+'. Check the details and documents, then choose a dispatcher. The dispatcher is notified and gets access to everything the sales agent submitted.</p>':'')+
     field('Status','driverStatus',d.id?drvStatus(d):'In Loop',{type:'select',options:DSTATUS,hint:'Active needs a completed load. Not Responding: the driver is not answering. Dead removes the driver from dispatchers\' lists but keeps every record.'})+
+    ((session.role==='admin'||session.role==='accountant')&&d.id?field('Active date','activeDay',activeDay(d),{type:'date',hint:'The day this driver became Active. Filled in by itself when the driver is marked Active; fill it in for drivers who were active before.'}):'')+
     field('Truck type','truckType',d.truckType||'',{type:'select',options:[['','—']].concat(TRUCK_TYPES)})+
     field('Truck length (ft)','truckLen',d.truckLen||'',{type:'number',min:1,max:100,step:'1',required:!d.id,hint:d.id?'':'Required for a new driver.'})+
     field('Weight capacity (lbs)','weightCap',d.weightCap||'',{type:'number',min:0,step:'1'})+
@@ -3710,11 +3793,11 @@ function driverForm(d){
 
 /* ---------- brokers ---------- */
 function brokerCounts(c){
-  var w=weekRange(TODAY),ym=TODAY.slice(0,7),wk=0,mo=0,all=0;
+  var w=weekRange(TODAY),ym=curYm(),wk=0,mo=0,all=0;
   usageLoads().forEach(function(l){
     if(l.customerId!==c.id)return;all++;
     if(inWeek(l.pickup,w))wk++;
-    if(String(l.pickup).slice(0,7)===ym)mo++;
+    if(ymOfDate(l.pickup)===ym)mo++;
   });
   return {week:wk,month:mo,total:all};
 }
@@ -3844,7 +3927,9 @@ function pInvoices(){
   return invPage(groups,inv,ready,chips);
 }
 function invListHtml(){
+  var iym=ui.invYm||'',ir=iym?mRange(iym):null;
   var shown=db.invoices.filter(function(i){
+    if(ir&&!(i.issued>=ir.from&&i.issued<=ir.to))return false;
     if(ui.invFilter==='Pending')return i.status==='Sent';
     if(ui.invFilter==='Overdue')return invStatus(i)==='Overdue';
     if(ui.invFilter==='Paid')return i.status==='Paid';
@@ -3856,13 +3941,20 @@ function invListHtml(){
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="view-invoice" data-id="'+i.id+'">Open</button>'+(can('invoice')?'<button class="btn sm danger" type="button" data-action="delete-invoice" data-id="'+i.id+'">Delete</button>':'')+'</div></td></tr>';}).join('');
   return (list?'<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Driver</th><th>Issued</th><th>Due</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>'+list+'</tbody></table></div>':'<div class="empty">'+(ui.invQ.trim()?'No invoices match your search.':'No invoices yet.')+'</div>');
 }
+/* invoices: filter by the dispatch month the invoice was issued in */
+function invMonthSel(){
+  var set={};db.invoices.forEach(function(i){if(okDate(i.issued))set[ymOfDate(i.issued)]=1;});set[curYm()]=1;
+  var yms=Object.keys(set).sort().reverse();
+  return '<label class="field" style="grid-template-columns:auto minmax(0,260px);align-items:center;gap:8px"><span>Month</span><select id="invYm"><option value="">All months</option>'+
+    yms.map(function(ym){return '<option value="'+ym+'"'+(ui.invYm===ym?' selected':'')+'>'+esc(dmLabel(ym))+'</option>';}).join('')+'</select></label>';
+}
 function invPage(groups,inv,ready,chips){
   return head('Invoices',inv?'One click turns a driver\'s delivered loads into a dispatch fee invoice from '+db.settings.company+' to the driver':'See which invoices are paid and which are still pending',
     inv&&groups.length>1?'<button class="btn primary" type="button" data-action="invoice-all">Create all '+groups.length+' invoices</button>':'')+
   '<section class="panel"><header><h2>Ready to invoice</h2><span class="muted small">'+(inv?'Delivered loads, one invoice per driver':'Delivered loads waiting to be invoiced')+'</span></header>'+
     (ready||'<div class="empty">All delivered loads are invoiced.</div>')+'</section>'+
   '<section class="panel"><header><h2>Issued invoices</h2><div class="chips">'+chips+'</div></header>'+
-    '<div class="toolbar"><input id="invSearch" class="searchbox" type="search" placeholder="Search invoice number, driver, load or status" value="'+esc(ui.invQ)+'" aria-label="Search invoices"></div>'+
+    '<div class="toolbar"><input id="invSearch" class="searchbox" type="search" placeholder="Search invoice number, driver, load or status" value="'+esc(ui.invQ)+'" aria-label="Search invoices">'+invMonthSel()+'</div>'+
     '<div id="invBody">'+invListHtml()+'</div></section>';
 }
 function daysBetween(a,b){var x=parts(a),y=parts(b);return Math.round((Date.UTC(y[0],y[1]-1,y[2])-Date.UTC(x[0],x[1]-1,x[2]))/86400000);}
@@ -3987,7 +4079,7 @@ function loadPaidOn(l){
 }
 function payDocs(empId){
   var out=[];
-  db.payslips.forEach(function(p){if(p.empId===empId&&p.ym)out.push({from:p.ym+'-01',to:lastDayOf(p.ym),ids:Array.isArray(p.comLoadIds)?p.comLoadIds:null,doc:p});});
+  db.payslips.forEach(function(p){if(p.empId===empId&&p.ym)out.push({from:mFrom(p.ym),to:mTo(p.ym),ids:Array.isArray(p.comLoadIds)?p.comLoadIds:null,doc:p});});
   (db.payruns||[]).forEach(function(p){if(p.empId===empId&&p.from&&p.to)out.push({from:p.from,to:p.to,ids:Array.isArray(p.comLoadIds)?p.comLoadIds:null,doc:p});});
   return out;
 }
@@ -4030,7 +4122,7 @@ function adjFor(empId,ym){return db.payAdj[ym+'|'+empId]||{};}
 function pctFor(adj,e){var a=Number(adj&&adj.commissionPct);return a>0?a:(Number(e&&e.commissionPct)||0);}
 function calcPay(e,ym){
   var agent=e.title==='Sales agent';
-  var cs=comSet(e.id,agent,ym+'-01',lastDayOf(ym),slipFor(e.id,ym)),ls=cs.loads;
+  var cs=comSet(e.id,agent,mFrom(ym),mTo(ym),slipFor(e.id,ym)),ls=cs.loads;
   var feesUsd=sumBy(ls,loadFee);
   var adj=adjFor(e.id,ym);
   var pct=pctFor(adj,e);
@@ -4113,11 +4205,15 @@ function payRecRow(x,mine){
 }
 function slipListHtml(){
   var q=ui.slipQ.trim().toLowerCase();
+  var sy=ui.slipYm||'',sr=sy?mRange(sy):null;
   var list=payRecords(function(p){
+    /* a month: monthly payslips for that month, and custom-period payments whose dates overlap it */
+    if(sy&&!(p.ym?p.ym===sy:(String(p.from||'')<=sr.to&&String(p.to||'')>=sr.from)))return false;
     if(!q)return true;var e=empOf(p);
     return [p.no,e.name,e.title,p.ym||'',p.ym?ymLabel(p.ym):'',p.from||'',p.to||'',p.manual?'edited':'',p.ym?'monthly':'custom period'].join(' ').toLowerCase().indexOf(q)>-1;});
-  if(!list.length)return '<div class="empty">'+(q?'No payslips match your search.':'No payslips issued yet.')+'</div>';
-  return '<div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Number</th><th>Employee</th><th>Type</th><th>Period</th><th>Issued</th><th class="num">Net pay</th><th></th></tr></thead><tbody>'+list.map(function(x){return payRecRow(x,false);}).join('')+'</tbody></table></div>';
+  if(!list.length)return '<div class="empty">'+(q?'No payslips match your search'+(sy?' in '+esc(dmLabel(sy)):'')+'.':sy?'No payslips issued for '+esc(dmLabel(sy))+'.':'No payslips issued yet.')+'</div>';
+  var tot=list.reduce(function(a,x){return a+(Number(x.p.net)||0);},0);
+  return (sy?'<div class="pad small" style="padding-bottom:0">'+plural(list.length,'payslip')+' for '+esc(dmLabel(sy))+' · total net pay <b>'+rs(tot)+'</b></div>':'')+'<div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Number</th><th>Employee</th><th>Type</th><th>Period</th><th>Issued</th><th class="num">Net pay</th><th></th></tr></thead><tbody>'+list.map(function(x){return payRecRow(x,false);}).join('')+'</tbody></table></div>';
 }
 function invMatch(i,q){
   if(!q)return true;
@@ -4148,7 +4244,7 @@ function pMyPay(){
 /* ---------- yearly report per employee (admin only) ---------- */
 function empYearMonth(e,ym){
   var agent=e.title==='Sales agent';
-  var ls=db.loads.filter(function(l){return isDone(l)&&loadDay(l).slice(0,7)===ym&&(agent?((getDrv(l.driverId)||{}).salesAgentId===e.id):l.dispatcherId===e.id);});
+  var ls=db.loads.filter(function(l){return isDone(l)&&ymOfDate(loadDay(l))===ym&&(agent?((getDrv(l.driverId)||{}).salesAgentId===e.id):l.dispatcherId===e.id);});
   return {count:ls.length,rev:sumBy(ls,function(l){return l.rate;}),fees:sumBy(ls,loadFee),miles:ls.reduce(function(a,l){return a+(Number(l.miles)||0);},0)};
 }
 function adminYearHtml(){
@@ -4187,34 +4283,57 @@ function adminYearHtml(){
     '</div>'+
     '<div class="tablewrap"><table style="min-width:680px"><thead><tr><th>Month</th><th class="num">Loads</th><th class="num">Load revenue</th><th class="num">Dispatch fees</th><th class="num">Miles</th><th class="num">Gross pay (payslip)</th></tr></thead><tbody>'+yrows+
     '<tr class="total"><td>Total</td><td class="num">'+tot.count+'</td><td class="num">'+money(tot.rev)+'</td><td class="num">'+money(tot.fees)+'</td><td class="num">'+NUM.format(tot.miles)+'</td><td class="num">'+(tot.slips?rs(tot.gross)+'<div class="muted small">net '+rs(tot.net)+'</div>':'—')+'</td></tr></tbody></table></div>'+
-    '<p class="muted small" style="margin:8px 14px 12px">Loads count in the month of their pickup date once delivered. Gross pay is the amount on the payslip issued for that month (base pay plus commission, before advance and fines).</p></section>';
+    '<p class="muted small" style="margin:8px 14px 12px">Loads count in the month of their delivery date once delivered. Gross pay is the amount on the payslip issued for that month (base pay plus commission, before advance and fines).</p></section>';
+}
+/* ---------- dispatch months: set and see the dates (admin, accountant) ---------- */
+function dmCheck(ym,from,to){
+  if(!okDate(from)||!okDate(to))return 'Enter both dates as YYYY-MM-DD, or pick them from the calendar.';
+  if(to<from)return 'The end date is before the start date.';
+  var len=daysBetween(from,to)+1;if(len<14||len>45)return 'A dispatch month must be between 14 and 45 days long (this one is '+len+' days).';
+  if(dmLocked(ym))return ymLabel(ym)+' already has payslips, so its dates are locked.';
+  /* no day may belong to two months: check the set months and the months that already have payslips */
+  var others={};Object.keys(dmAll()).forEach(function(k){if(k!==ym&&dmRaw(k))others[k]=1;});
+  db.payslips.forEach(function(p){if(p.ym&&p.ym!==ym)others[p.ym]=1;});
+  var clash=Object.keys(others).sort().find(function(k){var r=mRange(k);return from<=r.to&&to>=r.from;});
+  if(clash){var r=mRange(clash);return 'These dates overlap '+ymLabel(clash)+' ('+shortD(r.from)+' – '+fmtD(r.to)+'). Change the dates so each day belongs to one month.';}
+  var pv=dmRaw(ymAdd(ym,-1))||(dmLocked(ymAdd(ym,-1))?mRange(ymAdd(ym,-1)):null),nx=dmRaw(ymAdd(ym,1));
+  if(pv&&from!==addDays(pv.to,1))return 'Start the month on '+fmtD(addDays(pv.to,1))+', the day after '+ymLabel(ymAdd(ym,-1))+' ends, so no day is left out.';
+  if(nx&&to!==addDays(nx.from,-1))return 'End the month on '+fmtD(addDays(nx.from,-1))+', the day before '+ymLabel(ymAdd(ym,1))+' starts, so no day is left out.';
+  return '';
+}
+function dmSectionHtml(){
+  if(session.role!=='admin'&&session.role!=='accountant')return '';
+  var cy=curYm(),list=[];for(var i=-4;i<=2;i++)list.push(ymAdd(cy,i));
+  var rows=list.map(function(ym){
+    var r=mRange(ym),lk=dmLocked(ym),x=dmAll()[ym];
+    var st=lk?'<span class="pill p-paid">Locked · payslips issued</span>':r.set?'<span class="pill p-sent">Set'+(x&&x.by?' by '+esc(x.by):'')+'</span>':'<span class="pill p-booked">Not set yet</span>';
+    return '<tr'+(ym===cy?' style="font-weight:600"':'')+'><td>'+esc(ymLabel(ym))+(ym===cy?' <span class="muted small">(current)</span>':'')+'</td><td style="white-space:nowrap">'+esc(fmtD(r.from))+'</td><td style="white-space:nowrap">'+esc(fmtD(r.to))+'</td><td class="num">'+(daysBetween(r.from,r.to)+1)+'</td><td>'+st+'</td>'+
+      '<td>'+(lk?'':'<button class="btn sm" type="button" data-action="dm-edit" data-ym="'+ym+'">'+(r.set?'Change dates':'Set dates')+'</button>')+'</td></tr>';}).join('');
+  return '<section class="panel paysec" id="secDm"><header><div><h2>Dispatch months</h2><div class="muted small">Set the first and last day of each dispatch month. Payroll, My salary, reports, the Monthly Report and invoices use these dates. A month that is not set uses its calendar dates. Dates lock when a payslip is issued for the month.</div></div></header>'+
+    '<div class="tablewrap"><table style="min-width:620px"><thead><tr><th>Month</th><th>Starts</th><th>Ends</th><th class="num">Days</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></section>';
+}
+function dmForm(ym){
+  var r=mRange(ym),pv=dmRaw(ymAdd(ym,-1))||(dmLocked(ymAdd(ym,-1))?mRange(ymAdd(ym,-1)):null);
+  var from=r.set?r.from:(pv?addDays(pv.to,1):r.from);
+  openModal(sheetHead('Dispatch month · '+ymLabel(ym))+
+    '<form class="form" data-form="dmonth"><input type="hidden" name="ym" value="'+ym+'">'+
+    '<label class="field"><span>First day</span>'+dateInput('dmFrom','from',from,'date','required')+'</label>'+
+    '<label class="field"><span>Last day</span>'+dateInput('dmTo','to',r.to,'date','required')+'</label>'+
+    '<p class="small muted full" style="margin:0">'+(pv?ymLabel(ymAdd(ym,-1))+' ends on '+esc(fmtD(pv.to))+'. ':'')+'Loads count in this month when their delivery date is between these two days. Fines, advances and bonuses entered for '+esc(ymLabel(ym))+' stay in this month.</p>'+
+    '<p class="small full" id="dmErr" style="margin:0;color:var(--bad)" hidden></p>'+
+    '<div class="formfoot">'+(r.set&&!dmLocked(ym)?'<button class="btn danger" type="button" data-action="dm-clear" data-ym="'+ym+'">Use calendar dates</button>':'')+'<span style="flex:1"></span><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save dates</button></div></form>');
 }
 function pPayroll(){
-  var ym=ui.ym,rate=fxFor(ym),saved=db.fx[ym]!=null;
-  var rows=db.employees.map(function(e){return calcPay(e,ym);});
-  var netTotal=rate==null?null:rows.reduce(function(a,r){return a+r.net;},0);
-  var tbl=payBodyHtml(rows);
-  var note=rate==null?'Enter the exchange rate to work out pay in Rs.':
-    (saved?'Rate saved for '+ymLabel(ym)+'.':'No rate saved for '+ymLabel(ym)+' yet. Using Rs '+NUM.format(rate)+' from an earlier month until you save one.');
-  var nav=[['secRange','Custom Date Range Payroll'],['secFx','Exchange Rate'],['secInv','Invoice Search'],['secSlips','All Issued Payslips']];
-  if(session.role==='admin')nav.push(['secYear','Yearly Report']);
+  var nav=[['secDm','Dispatch months'],['secRange','Custom Date Range Payroll and Exchange Rate'],['secSlips','All Issued Payslips']];
   return head('Payroll','Pay is worked out in rupees. Dispatch fees in dollars are converted at the exchange rate you enter for the month.','')+
   '<nav class="chips paynav" aria-label="Payroll sections">'+nav.map(function(n,i){return '<button class="chip" type="button" data-action="pay-jump" data-to="'+n[0]+'">'+(i+1)+'. '+n[1]+'</button>';}).join('')+'</nav>'+
+  dmSectionHtml()+
   '<div id="secRange" class="paysec">'+rangePanelHtml()+'</div>'+
-  '<section class="panel paysec" id="secFx"><header><div><h2>Exchange Rate</h2><div class="muted small">Rupees per US dollar for each pay month. Monthly payslips for the month are below.</div></div></header>'+
-    '<div class="toolbar"><label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>Pay month</span>'+dateInput('payMonth','',ym,'month','')+'</label></div>'+
-    '<form class="toolbar" data-form="fx"><span><b>Exchange rate</b> &nbsp;1 USD =</span><input id="fxRate" name="rate" type="number" step="0.01" min="0.01" required style="max-width:130px" value="'+(rate==null?'':esc(rate))+'" aria-label="Rupees per US dollar"><span>Rs</span>'+
-    '<button class="btn primary sm" type="submit">Save rate</button><span class="small" style="'+(rate==null?'color:var(--warn)':'color:var(--muted)')+'">'+esc(note)+'</span></form>'+
-    '<header style="border-top:1px solid var(--line)"><div><h3>Monthly payslips for '+esc(ymLabel(ym))+'</h3><div class="muted small">Net payroll <b style="color:var(--ink)">'+rs(netTotal)+'</b>'+(netTotal!=null&&rate?' · about '+money(netTotal/rate):'')+'</div></div><button class="btn primary sm" type="button" data-action="issue-all"'+(rate==null?' disabled':'')+'>Issue all payslips</button></header>'+
-    '<div class="toolbar"><input id="payEmpSearch" class="searchbox" type="search" placeholder="Filter by employee" value="'+esc(ui.payEmpQ)+'" aria-label="Filter monthly payslips by employee"></div>'+
-    (rows.length?'<div class="tablewrap"><table style="min-width:1180px"><thead><tr><th>Employee</th><th class="num">Base (Rs)</th><th class="num">Loads</th><th class="num">Dispatch fees ($)</th><th class="num">Commission %</th><th class="num">Commission (Rs and $)</th><th class="num">Advance (Rs)</th><th class="num">Fines (Rs)</th><th class="num">Net pay (Rs)</th><th>Payslip</th><th></th></tr></thead><tbody id="payBody">'+tbl+'</tbody></table></div>':'<div class="empty">Add employees on the Team page to run payroll.</div>')+'</section>'+
-  '<section class="panel paysec" id="secInv"><header><div><h2>Invoice Search</h2><div class="muted small">Look up a driver invoice while checking dispatch fees and commission</div></div></header>'+
-    '<div class="toolbar"><input id="payInvSearch" class="searchbox" type="search" placeholder="Invoice number, driver, load or status" value="'+esc(ui.payInvQ)+'" aria-label="Search invoices"></div>'+
-    '<div id="payInvBody">'+payInvHtml()+'</div></section>'+
   '<section class="panel paysec" id="secSlips"><header><div><h2>All Issued Payslips</h2><div class="muted small">Monthly payslips and custom-period payments. Issued records keep their amounts even if pay terms change later.</div></div></header>'+
-    '<div class="toolbar"><input id="slipSearch" class="searchbox" type="search" placeholder="Search employee, number or month" value="'+esc(ui.slipQ)+'" aria-label="Search issued payslips"></div>'+
-    '<div id="slipList">'+slipListHtml()+'</div></section>'+adminYearHtml()+
-  '<p class="muted small" style="margin:0">Commission counts only once the driver has paid the invoice for a load. Each load belongs to the month of its pickup date (it must be delivered); if the driver pays after that month\'s payslip was issued, the commission is added to the next payroll as a late payment. Dispatchers earn on the loads they dispatched; sales agents on loads from drivers they signed. Dispatchers have no base salary, only a commission percentage. In custom date range payroll, base pay is each person\'s fixed base amount and never changes with the dates you pick (hourly staff are paid for the hours entered). Net pay is base plus commission, less any advance and fines.</p>';
+    '<div class="toolbar"><input id="slipSearch" class="searchbox" type="search" placeholder="Search employee, number or month" value="'+esc(ui.slipQ)+'" aria-label="Search issued payslips">'+
+    '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600">Month '+ymSelect('slipYm',ui.slipYm||'',' aria-label="Dispatch month"','All months')+'</label></div>'+
+    '<div id="slipList">'+slipListHtml()+'</div></section>'+
+  '<p class="muted small" style="margin:0">Commission counts only once the driver has paid the invoice for a load. Each load belongs to the month of its delivery date (it must be delivered); if the driver pays after that month\'s payslip was issued, the commission is added to the next payroll as a late payment. Dispatchers earn on the loads they dispatched; sales agents on loads from drivers they signed. Dispatchers have no base salary, only a commission percentage. In custom date range payroll, base pay is each person\'s fixed base amount and never changes with the dates you pick (hourly staff are paid for the hours entered). Net pay is base plus commission, less any advance and fines.</p>';
 }
 function adjForm(empId){
   var e=getEmp(empId);if(!e)return;
@@ -4250,10 +4369,11 @@ function slipText(p){
 function issueSlip(empId,ym){
   var e=getEmp(empId);if(!e)return null;
   var c=calcPay(e,ym);if(c.rate==null)return null;
+  if(!dmRaw(ym)){var fr=mRange(ym);if(!db.dmonths)db.dmonths={};db.dmonths[ym]={from:fr.from,to:fr.to,auto:true,by:session.name||session.email,at:new Date().toISOString()};}
   var old=slipFor(empId,ym);
   c.empName=e.name;c.empTitle=e.title;
   if(old){Object.assign(old,c,{issued:TODAY,manual:false});return old;}
-  var ob=runOverlap(empId,ym+'-01',lastDayOf(ym));if(ob){issueErr=ob;return null;}
+  var ob=runOverlap(empId,mFrom(ym),mTo(ym));if(ob){issueErr=ob;return null;}
   db.seq.payslip+=1;
   c.id=uid('ps');c.no='PS-'+ym.replace('-','')+'-'+String(db.seq.payslip).padStart(3,'0');c.issued=TODAY;
   db.payslips.push(c);return c;
@@ -4264,14 +4384,46 @@ function issueSlip(empId,ym){
 var BASES=['Monthly salary','Weekly salary','Hourly rate','Commission only'];
 var issueErr='';
 function payBasisOf(e){return e&&e.payBasis&&BASES.indexOf(e.payBasis)>-1?e.payBasis:(e&&e.title==='Sales agent'?'Monthly salary':'Commission only');}
+/* ---------- dispatch months ----------
+   The admin or accountant sets the start and end date of each dispatch month (Payroll page).
+   A month without dates uses its calendar dates, starting the day after the previous set month
+   ends and stopping the day before the next set month starts. Once a payslip is issued for a
+   month its dates are locked. Everything "monthly" (payroll, reports, monthly overview, invoices)
+   uses these dates. */
+function ymAdd(ym,n){var y=Number(ym.slice(0,4)),m=Number(ym.slice(5,7))-1+n;y+=Math.floor(m/12);m=((m%12)+12)%12;return y+'-'+pad(m+1);}
+function dmAll(){return db.dmonths||{};}
+function dmRaw(ym){var x=dmAll()[ym];return x&&okDate(x.from)&&okDate(x.to)&&x.from<=x.to?x:null;}
+function mRange(ym){
+  var x=dmRaw(ym);if(x)return {ym:ym,from:x.from,to:x.to,set:true};
+  var from=ym+'-01',to=lastDayOf(ym),pv=dmRaw(ymAdd(ym,-1)),nx=dmRaw(ymAdd(ym,1));
+  if(pv)from=addDays(pv.to,1);
+  if(nx)to=addDays(nx.from,-1);
+  return {ym:ym,from:from,to:to,set:false};
+}
+function mFrom(ym){return mRange(ym).from;}
+function mTo(ym){return mRange(ym).to;}
+/* the dispatch month a date belongs to */
+function ymOfDate(d){
+  d=String(d||'').slice(0,10);if(!okDate(d))return String(d).slice(0,7);
+  var all=dmAll(),k;
+  for(k in all){var x=dmRaw(k);if(x&&d>=x.from&&d<=x.to)return k;}
+  var c=d.slice(0,7);
+  [c,ymAdd(c,1),ymAdd(c,-1)].some(function(y){var r=mRange(y);if(d>=r.from&&d<=r.to){c=y;return true;}return false;});
+  return c;
+}
+function curYm(){return ymOfDate(TODAY);}
+function dmLocked(ym){return db.payslips.some(function(p){return p.ym===ym;});}
+function shortD(d){return fmtD(d).replace(/, \d{4}$/,'');}
+function dmDates(ym){var r=mRange(ym);return shortD(r.from)+' – '+fmtD(r.to);}
+function dmLabel(ym){return ymLabel(ym)+' ('+dmDates(ym)+')';}
 function lastDayOf(ym){var p=parts(ym+'-01');return iso(new Date(p[0],p[1],0));}
 function dimOf(ym){return Number(lastDayOf(ym).slice(8));}
 function ymsBetween(a,b){var out=[],y=Number(a.slice(0,4)),m=Number(a.slice(5,7)),ey=Number(b.slice(0,4)),em=Number(b.slice(5,7));while(y<ey||(y===ey&&m<=em)){out.push(y+'-'+pad(m));m++;if(m>12){m=1;y++;}}return out;}
 function rangePreset(name){
   var t=TODAY;
   if(name==='This Week'){var w=weekRange(t);return {from:w.start,to:w.end};}
-  if(name==='Last Month'){var p=parts(t.slice(0,7)+'-01'),d=new Date(p[0],p[1]-2,1),ym=d.getFullYear()+'-'+pad(d.getMonth()+1);return {from:ym+'-01',to:lastDayOf(ym)};}
-  return {from:t.slice(0,7)+'-01',to:lastDayOf(t.slice(0,7))};
+  if(name==='Last Month'){var ly=ymAdd(ymOfDate(t),-1);return {from:mFrom(ly),to:mTo(ly)};}
+  var cy=ymOfDate(t);return {from:mFrom(cy),to:mTo(cy)};
 }
 function curRg(){if(!ui.rg)ui.rg=rangePreset('This Month');return ui.rg;}
 function itemsFor(empId,from,to){return db.payitems.filter(function(i){return i.empId===empId&&i.date>=from&&i.date<=to;}).sort(function(a,b){return String(a.date).localeCompare(String(b.date));});}
@@ -4285,7 +4437,7 @@ function rangeCalc(e,from,to){
        Changing the start or end date never changes it. If another payment or monthly
        payslip already paid a base in one of these months, a warning is shown instead. */
     o.base=rate0;
-    if(basis==='Monthly salary')o.baseMonths=ymsBetween(from.slice(0,7),to.slice(0,7));
+    if(basis==='Monthly salary')o.baseMonths=ymsBetween(ymOfDate(from),ymOfDate(to));
     var paidIn=[];
     if(basis==='Monthly salary')o.baseMonths.forEach(function(ym){var pd=basePaidIn(e.id,ym,from,to);if(pd)paidIn.push(ymLabel(ym)+' in '+pd);});
     o.baseWarn=paidIn.length?'Base pay already paid for '+paidIn.join(', '):'';
@@ -4296,7 +4448,7 @@ function rangeCalc(e,from,to){
   }else o.baseNote='Commission only. No base pay.';
   var selfRun=(db.payruns||[]).find(function(p){return p.empId===e.id&&p.from===from&&p.to===to;});
   var cs=comSet(e.id,agent,from,to,selfRun||null),ls=cs.loads;
-  var by={};ls.forEach(function(l){var ym=String(cs.dates[l.id]).slice(0,7);by[ym]=(by[ym]||0)+loadFee(l);});
+  var by={};ls.forEach(function(l){var ym=ymOfDate(cs.dates[l.id]);by[ym]=(by[ym]||0)+loadFee(l);});
   var com=0,missing=false,fees=0;o.comRows=[];o.loads=ls.length;o.comLoadIds=ls.map(function(l){return l.id;});o.lateLoads=cs.late.length;o.pendingLoads=cs.pending.length;o.pendingFeesUsd=sumBy(cs.pending,loadFee);
   Object.keys(by).sort().forEach(function(ym){
     var f=r2(by[ym]),adj=adjFor(e.id,ym),pct=pctFor(adj,e),rate=fxFor(ym),amt=null;
@@ -4306,15 +4458,15 @@ function rangeCalc(e,from,to){
   var bonus=0,adv=0,ded=0;
   items.forEach(function(i){var a=Math.round(Number(i.amount)||0);if(i.type==='Bonus')bonus+=a;else if(i.type==='Advance')adv+=a;else if(i.type==='Deduction')ded+=a;});
   var fines=0;
-  ymsBetween(from.slice(0,7),to.slice(0,7)).forEach(function(ym){
-    if(from<=ym+'-01'&&to>=lastDayOf(ym)){var a=adjFor(e.id,ym);adv+=Math.round(Number(a.advance)||0);fines+=Math.round(Number(a.fines)||0);}});
+  ymsBetween(ymOfDate(from),ymOfDate(to)).forEach(function(ym){
+    if(from<=mFrom(ym)&&to>=mTo(ym)){var a=adjFor(e.id,ym);adv+=Math.round(Number(a.advance)||0);fines+=Math.round(Number(a.fines)||0);}});
   o.bonus=bonus;o.advance=adv;o.fines=fines;o.deductions=ded;
   o.gross=missing?null:o.base+com+bonus;
   o.net=o.gross==null?null:o.gross-adv-fines-ded;
   return o;
 }
 function basePaidIn(empId,ym,from,to){
-  var ms=ym+'-01',me=lastDayOf(ym);
+  var ms=mFrom(ym),me=mTo(ym);
   var sl=db.payslips.find(function(p){return p.empId===empId&&p.ym===ym&&(Number(p.base)||0)>0;});
   if(sl)return sl.no;
   var pr=db.payruns.find(function(p){
@@ -4329,12 +4481,17 @@ function runOverlap(empId,from,to,ignoreId){
 }
 function rangeBlock(empId,from,to){
   var m=runOverlap(empId,from,to);if(m)return m;
-  var sl=db.payslips.find(function(p){return p.empId===empId&&p.ym+'-01'<=to&&lastDayOf(p.ym)>=from;});
+  var sl=db.payslips.find(function(p){return p.empId===empId&&mFrom(p.ym)<=to&&mTo(p.ym)>=from;});
   return sl?'Covered by monthly payslip '+sl.no+' ('+ymLabel(sl.ym)+')':'';
 }
 function rgChips(){
   return ['This Week','This Month','Last Month','Custom Range'].map(function(c){
     return '<button class="chip" type="button" data-action="rg-chip" data-p="'+c+'" aria-pressed="'+(ui.rgChip===c)+'">'+c+'</button>';}).join('');
+}
+function rgPctHtml(e,c,r){
+  var seen=[];(c.comRows||[]).forEach(function(x){if(x.pct!=null&&seen.indexOf(Number(x.pct))<0)seen.push(Number(x.pct));});
+  if(!seen.length){var p=pctFor(adjFor(e.id,ymOfDate(r.to)),e);if(p>0)seen.push(p);}
+  return seen.length?'<b>'+seen.map(function(p){return NUM.format(p)+'%';}).join(' / ')+'</b>':'<span class="muted">—</span>';
 }
 function rgRowsHtml(r){
   var rows=db.employees.map(function(e){return {e:e,c:rangeCalc(e,r.from,r.to)};});
@@ -4347,6 +4504,7 @@ function rgRowsHtml(r){
     var status=run?'<span class="pill p-paid">Paid · '+esc(run.no)+'</span>':(blk?'<span class="pill p-overdue" title="'+esc(blk)+'">Blocked</span><div class="muted small">'+esc(blk)+'</div>':'<span class="muted small">Not paid</span>');
     return '<tr><td><div class="stack"><b>'+esc(e.name)+'</b><span class="muted small">'+esc(e.title)+' · '+esc(c.basis)+'</span></div></td>'+
       '<td class="num">'+rs(c.base)+(c.baseWarn?'<div class="small" style="color:var(--warn);white-space:normal">'+esc(c.baseWarn)+'</div>':'')+'</td>'+
+      '<td class="num">'+rgPctHtml(e,c,r)+'</td>'+
       '<td class="num">'+(c.commission==null?'<span class="muted small">Needs rate</span>':rs(c.commission))+'<div class="muted small">'+c.loads+' loads · '+money(c.feesUsd)+'</div></td>'+
       '<td class="num">'+(c.bonus?rs(c.bonus):'—')+'</td>'+
       '<td class="num">'+(c.advance?'−Rs '+NUM.format(c.advance):'—')+'</td>'+
@@ -4354,19 +4512,30 @@ function rgRowsHtml(r){
       '<td class="num"><b>'+rs(c.net)+'</b></td><td>'+status+'</td>'+
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="rg-detail" data-emp="'+e.id+'">Details</button>'+
       (run?'<button class="btn sm" type="button" data-action="view-run" data-id="'+run.id+'">View payment</button>':'<button class="btn sm primary" type="button" data-action="rg-issue" data-emp="'+e.id+'"'+(can_?'':' disabled')+'>Issue payment</button>')+'</div></td></tr>';}).join('');
-  return {html:'<div class="tablewrap"><table style="min-width:1120px"><thead><tr><th>Employee</th><th class="num">Base pay</th><th class="num">Commission</th><th class="num">Bonus</th><th class="num">Advances</th><th class="num">Fines and deductions</th><th class="num">Net payable</th><th>Status</th><th></th></tr></thead><tbody>'+body+
-    '</tbody><tfoot><tr><td colspan="6"><b>Total payroll for the period</b></td><td class="num"><b>'+rs(total)+'</b></td><td colspan="2"></td></tr></tfoot></table></div>',total:total,n:n,missing:missing,payable:payable};
+  return {html:'<div class="tablewrap"><table style="min-width:1120px"><thead><tr><th>Employee</th><th class="num">Base pay</th><th class="num">Commission %</th><th class="num">Commission</th><th class="num">Bonus</th><th class="num">Advances</th><th class="num">Fines and deductions</th><th class="num">Net payable</th><th>Status</th><th></th></tr></thead><tbody>'+body+
+    '</tbody><tfoot><tr><td colspan="7"><b>Total payroll for the period</b></td><td class="num"><b>'+rs(total)+'</b></td><td colspan="2"></td></tr></tfoot></table></div>',total:total,n:n,missing:missing,payable:payable};
+}
+/* exchange rate for a pay month, shown inside the custom date range payroll */
+function fxRowHtml(){
+  var ym=ui.ym,rate=fxFor(ym),saved=db.fx[ym]!=null;
+  var note=rate==null?'Enter the exchange rate to work out pay in Rs.':
+    (saved?'Rate saved for '+ymLabel(ym)+'.':'No rate saved for '+ymLabel(ym)+' yet. Using Rs '+NUM.format(rate)+' from an earlier month until you save one.');
+  return '<div id="secFx" style="border-top:1px solid var(--line);border-bottom:1px solid var(--line)">'+
+    '<div class="toolbar" style="border:0;padding-bottom:4px"><b>Exchange rate</b><label class="field" style="grid-template-columns:auto minmax(0,280px);align-items:center;gap:10px"><span>Pay month</span>'+ymSelect('payMonth',ym,' aria-label="Pay month"')+'</label><span class="small muted">Commission uses the rate of the month each load belongs to.</span></div>'+
+    '<form class="toolbar" data-form="fx" style="border:0;padding-top:4px"><span>1 USD =</span><input id="fxRate" name="rate" type="number" step="0.01" min="0.01" required style="max-width:130px" value="'+(rate==null?'':esc(rate))+'" aria-label="Rupees per US dollar"><span>Rs</span>'+
+    '<button class="btn primary sm" type="submit">Save rate</button><span class="small" style="'+(rate==null?'color:var(--warn)':'color:var(--muted)')+'">'+esc(note)+'</span></form></div>';
 }
 function rangePanelHtml(){
   var r=curRg(),t=rgRowsHtml(r);
-  return '<section class="panel" id="rgPanel"><header><div><h2>Custom date range payroll</h2><div class="muted small">Pick any period. Base pay is each person\'s fixed base amount and does not change with the dates; commission is worked out from delivered loads picked up in the period whose invoices are paid, plus late payments for earlier loads.</div></div>'+
+  return '<section class="panel" id="rgPanel"><header><div><h2>Custom date range payroll</h2><div class="muted small">Pick any period. Base pay is each person\'s fixed base amount and does not change with the dates; commission is worked out from loads delivered in the period whose invoices are paid, plus late payments for earlier loads.</div></div>'+
     '<button class="btn primary" type="button" data-action="rg-issue-all"'+(t.payable?'':' disabled')+'>Issue all payments ('+t.payable+')</button></header>'+
-    '<div class="toolbar"><div class="chips">'+rgChips()+'</div></div>'+
+    '<div class="toolbar"><div class="chips">'+rgChips()+'</div>'+monthPick('rg',ui.rgChip==='Month'?ui.rgYm:'')+'</div>'+
     '<div class="toolbar"><label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>Start date</span>'+dateInput('rgFrom','',r.from,'date')+'</label>'+
     '<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>End date</span>'+dateInput('rgTo','',r.to,'date')+'</label>'+
     '<button class="btn primary sm" type="button" data-action="rg-apply">Apply Filter</button><button class="btn sm" type="button" data-action="rg-reset">Reset</button>'+
     '<span class="muted small" style="margin-left:auto">Total payroll '+fmtD(r.from)+' to '+fmtD(r.to)+': <b style="color:var(--ink)">'+rs(t.total)+'</b> for '+plural(t.n,'employee')+'</span></div>'+
-    (t.missing?'<div class="muted small" style="padding:0 16px 8px;color:var(--warn)">'+plural(t.missing,'employee')+' have loads in a month with no exchange rate saved, so commission cannot be worked out yet. Save the rate for that month below.</div>':'')+
+    fxRowHtml()+
+    (t.missing?'<div class="muted small" style="padding:0 16px 8px;color:var(--warn)">'+plural(t.missing,'employee')+' have loads in a month with no exchange rate saved, so commission cannot be worked out yet. Save the rate for that month in Exchange rate above.</div>':'')+
     t.html+'</section>';
 }
 function rgLinesHtml(c){
@@ -4444,7 +4613,7 @@ function prLabel(k){var c=prCur(k);return c.from===c.to?fmtD(c.from):fmtD(c.from
 function prBar(k){
   var c=prCur(k),ch=prChip(k);
   return '<div class="ovbar prbar" style="padding:10px 16px;border-bottom:1px solid var(--line);justify-content:flex-start"><div class="chips">'+PR_CHIPS.map(function(n){
-      return '<button class="chip" type="button" data-action="pr-chip" data-k="'+k+'" data-p="'+n+'" aria-pressed="'+(ch===n)+'">'+n+'</button>';}).join('')+'</div>'+
+      return '<button class="chip" type="button" data-action="pr-chip" data-k="'+k+'" data-p="'+n+'" aria-pressed="'+(ch===n)+'">'+n+'</button>';}).join('')+'</div>'+monthPick(k,ch==='Month'?ui[k+'Ym']:'')+
     (ch==='Custom Range'?'<div class="ovdates"><label>Start date '+dateInput(k+'From','',c.from,'date','aria-label="Start date"')+'</label><label>End date '+dateInput(k+'To','',c.to,'date','aria-label="End date"')+'</label>'+
     '<button class="btn primary sm" type="button" data-action="pr-apply" data-k="'+k+'">Apply Filter</button><button class="btn sm" type="button" data-action="pr-reset" data-k="'+k+'">Reset</button></div>':'')+'</div>';
 }
@@ -4507,11 +4676,13 @@ function spListOpen(empId){
       mine.map(function(x){return '<tr><td><b>'+esc(fmtD(x.date))+'</b></td><td class="num">'+sheetsOf(x)+'</td><td class="num">'+NUM.format(x.calls||0)+'</td><td class="num">'+NUM.format(x.pickups||0)+' <span class="muted small">('+pickRate(x)+')</span></td><td class="num"><b>'+NUM.format(x.sales||0)+'</b></td><td><div class="rowact"><button class="btn sm" type="button" data-action="dr-view" data-id="'+esc(x.id)+'">View</button></div></td></tr>';}).join('')+
       '</tbody></table></div>':'<div class="empty">No reports in this period.</div>'),true);
 }
+/* Dispatcher reports count a load on its drop-off day (the day it was marked delivered, if it was) or on its pickup day */
+function drDay(l){return ui.drBy==='pick'?String(l.pickup||''):loadDay(l);}
 function drLoads(dispId){
   return db.loads.filter(function(l){
     if(l.dispatcherId!==dispId)return false;
     if(!ui.drFrom&&!ui.drTo)return true;
-    var b=bookedOn(l);if(!b)return false;
+    var b=drDay(l);if(!b)return false;
     return (!ui.drFrom||b>=ui.drFrom)&&(!ui.drTo||b<=ui.drTo);
   });
 }
@@ -4530,25 +4701,26 @@ function pDispReports(){
     var ls=drLoads(sel.id),by={};
     ls.forEach(function(l){(by[l.driverId]=by[l.driverId]||[]).push(l);});
     var blocks=Object.keys(by).sort(function(a,b){return nm(getDrv(a)).localeCompare(nm(getDrv(b)));}).map(function(id){
-      var d=getDrv(id),list=by[id].sort(function(a,b){return String(bookedOn(b)).localeCompare(bookedOn(a));});
+      var d=getDrv(id),list=by[id].sort(function(a,b){return drDay(b).localeCompare(drDay(a));});
       return '<div style="margin-top:14px"><b>'+esc(nm(d))+'</b> <span class="muted small">'+esc(d?d.carrier:'')+' · '+plural(list.length,'load')+' · '+money(sumBy(list,loadFee))+'</span>'+
-        '<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Booked</th><th>Route</th><th>Pickup</th><th>Status</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
-        list.map(function(l){return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+(bookedOn(l)?fmtD(bookedOn(l)):'—')+'</td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td>'+fmtD(l.pickup)+'</td><td>'+pill(l.status)+'</td><td class="num">'+money(loadFee(l))+'</td></tr>';}).join('')+'</tbody></table></div></div>';}).join('');
-    detail='<section class="panel"><header><div><h2>'+esc(sel.name)+'</h2><div class="muted small">'+plural(ls.length,'load')+' booked'+(filtered?' in this period':' in total')+' · '+plural(Object.keys(by).length,'driver')+' · '+money(sumBy(ls,loadFee))+' dispatch fees</div></div></header><div class="pad">'+(blocks||'<div class="empty">No loads booked by this dispatcher in this period.</div>')+'</div></section>';
+        '<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Route</th><th>Pickup</th><th>Drop-off</th><th>Status</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
+        list.map(function(l){return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td>'+fmtD(l.pickup)+'</td><td>'+fmtD(l.delivery)+(l.deliveredOn&&l.deliveredOn!==l.delivery?'<div class="muted small">Marked delivered '+fmtD(l.deliveredOn)+'</div>':'')+'</td><td>'+pill(l.status)+'</td><td class="num">'+money(loadFee(l))+'</td></tr>';}).join('')+'</tbody></table></div></div>';}).join('');
+    detail='<section class="panel"><header><div><h2>'+esc(sel.name)+'</h2><div class="muted small">'+plural(ls.length,'load')+(filtered?(ui.drBy==='pick'?' picked up':' dropped off')+' in this period':' in total')+' · '+plural(Object.keys(by).length,'driver')+' · '+money(sumBy(ls,loadFee))+' dispatch fees</div></div></header><div class="pad">'+(blocks||'<div class="empty">No loads for this dispatcher in this period.</div>')+'</div></section>';
   }
   tot.fees=r2(tot.fees);
   var totRow='<tr class="total"><td>All dispatchers</td><td class="num">'+tot.all+'</td><td class="num">'+tot.n+'</td><td class="num">'+Object.keys(tot.drv).length+'</td><td class="num">'+money(tot.fees)+'</td><td></td></tr>';
-  return head('Dispatcher reports','Loads booked by each dispatcher, and the drivers they booked them for')+
+  return head('Dispatcher reports','Loads of each dispatcher by pickup or drop-off date, and the drivers they booked them for')+
   '<div class="stats" id="drTotals">'+
-    statTile('Total loads',String(tot.n),'booked by all '+plural(disp.length,'dispatcher')+(filtered?' in this period':', all time'))+
+    statTile('Total loads',String(tot.n),'of all '+plural(disp.length,'dispatcher')+(filtered?(ui.drBy==='pick'?', picked up':', dropped off')+' in this period':', all time'))+
     statTile('Total dispatch fees',money(tot.fees),'on those loads')+
-    statTile('Drivers',String(Object.keys(tot.drv).length),'with a load booked'+(filtered?' in this period':''))+
+    statTile('Drivers',String(Object.keys(tot.drv).length),'with a load'+(filtered?' in this period':''))+
     statTile('Average fee per load',tot.n?money(r2(tot.fees/tot.n)):'—',filtered?'in this period':'all time')+
   '</div>'+
-  '<section class="panel"><div class="toolbar"><label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>Booked from</span>'+dateInput('drFrom','',ui.drFrom,'date')+'</label>'+
+  '<section class="panel"><div class="toolbar">'+monthPick('dr',(ui.drYm&&ui.drFrom===mFrom(ui.drYm)&&ui.drTo===mTo(ui.drYm))?ui.drYm:'')+'<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>Dates by</span><select id="drBy" aria-label="Count loads by"><option value="drop"'+(ui.drBy!=='pick'?' selected':'')+'>Drop-off date</option><option value="pick"'+(ui.drBy==='pick'?' selected':'')+'>Pickup date</option></select></label>'+
+    '<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>From</span>'+dateInput('drFrom','',ui.drFrom,'date')+'</label>'+
     '<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>to</span>'+dateInput('drTo','',ui.drTo,'date')+'</label>'+
     '<button class="btn primary sm" type="button" data-action="dr-apply">Apply Filter</button><button class="btn sm" type="button" data-action="dr-reset">Reset</button><span class="muted small">Leave both dates empty to count all time.</span></div>'+
-    (rows?'<div class="tablewrap"><table><thead><tr><th>Dispatcher</th><th class="num">Loads booked (all time)</th><th class="num">Loads booked'+(filtered?' (period)':'')+'</th><th class="num">Drivers</th><th class="num">Dispatch fees</th><th></th></tr></thead><tbody>'+rows+totRow+'</tbody></table></div>':'<div class="empty">No dispatchers yet. Add them on the Team page.</div>')+'</section>'+detail;
+    (rows?'<div class="tablewrap"><table><thead><tr><th>Dispatcher</th><th class="num">Loads (all time)</th><th class="num">Loads'+(filtered?' (period)':'')+'</th><th class="num">Drivers</th><th class="num">Dispatch fees</th><th></th></tr></thead><tbody>'+rows+totRow+'</tbody></table></div>':'<div class="empty">No dispatchers yet. Add them on the Team page.</div>')+'</section>'+detail;
 }
 
 /* ---------- my account ---------- */
@@ -4836,8 +5008,8 @@ var actions={
     var f=($('drFrom')||{}).value||'',t=($('drTo')||{}).value||'';
     if((f&&!okDate(f))||(t&&!okDate(t))){toast('Enter dates as YYYY-MM-DD, or pick them from the calendar.');return;}
     if(f&&t&&t<f){toast('The end date is before the start date.');return;}
-    ui.drFrom=f;ui.drTo=t;render();},
-  'dr-reset':function(){ui.drFrom='';ui.drTo='';render();},
+    ui.drFrom=f;ui.drTo=t;ui.drBy=(($('drBy')||{}).value==='pick')?'pick':'drop';render();},
+  'dr-reset':function(){ui.drFrom='';ui.drTo='';ui.drBy='drop';render();},
   'nav':function(el){
     var pg=el.dataset.page,fromMenu=!!ui.menuOpen;ui.menuOpen=false;
     if(isMob()){try{if(fromMenu&&history.state&&history.state.z==='menu')history.replaceState({z:'page',page:pg},'');else if(pg!==ui.page)history.pushState({z:'page',page:pg},'');}catch(e){}}
@@ -4863,7 +5035,7 @@ var actions={
     render();},
   'mo-mode':function(el){
     ui.moMode=el.dataset.m;
-    if(ui.moMode==='Custom Range'&&!(okDate(ui.moFrom)&&okDate(ui.moTo))){var p=moPeriod();ui.moFrom=(ui.moYm||moDefaultYm())+'-01';ui.moTo=lastDayOf(ui.moYm||moDefaultYm());}
+    if(ui.moMode==='Custom Range'&&!(okDate(ui.moFrom)&&okDate(ui.moTo))){var p=moPeriod();ui.moFrom=mFrom(ui.moYm||moDefaultYm());ui.moTo=mTo(ui.moYm||moDefaultYm());}
     render();},
   'mo-apply':function(){
     var f=($('moFrom')||{}).value,t=($('moTo')||{}).value;
@@ -4872,6 +5044,11 @@ var actions={
     if(daysBetween(f,t)>62){toast('Choose a period of two months or less.');return;}
     ui.moFrom=f;ui.moTo=t;render();},
   'mo-print':function(){if(session.role==='admin')moReport();},
+  'dm-edit':function(el){if(session.role==='admin'||session.role==='accountant')dmForm(el.dataset.ym);},
+  'dm-clear':function(el){
+    var ym=el.dataset.ym;if(dmLocked(ym))return;
+    if(!confirmTwice(el,'Click again to use calendar dates'))return;
+    delete db.dmonths[ym];persist();closeModal();render();toast(ymLabel(ym)+' now uses its calendar dates.');},
   'ov-apply':function(){
     var f=($('ovFrom')||{}).value,t=($('ovTo')||{}).value;
     if(!okDate(f)||!okDate(t)){toast('Enter both dates as YYYY-MM-DD, or pick them from the calendar.');return;}
@@ -4887,7 +5064,7 @@ var actions={
   'new-load':function(){loadForm();},
   'edit-load':function(el){loadForm(getLoad(el.dataset.id));},
   'start-load':function(el){var l=getLoad(el.dataset.id);l.status='In transit';persist();render();toast(l.ref+' is in transit');},
-  'deliver-load':function(el){var l=getLoad(el.dataset.id);l.status='Delivered';persist();render();toast(l.ref+' delivered. It is ready to invoice.');},
+  'deliver-load':function(el){var l=getLoad(el.dataset.id);l.status='Delivered';l.deliveredOn=coToday();l.deliveredBy=session.name||session.email;persist();render();toast(l.ref+' delivered. It is ready to invoice.');},
   'delete-load':function(el){
     var l=getLoad(el.dataset.id);if(!l||!canDelLoad(l))return;
     var locked=l.status==='Invoiced'||l.status==='Paid';
@@ -4980,7 +5157,7 @@ var actions={
   'view-slip':function(el){openSlip(el.dataset.id);},
   'rg-chip':function(el){
     var p=el.dataset.p;ui.rgChip=p;
-    if(p!=='Custom Range')ui.rg=rangePreset(p);
+    if(p!=='Custom Range'){ui.rg=rangePreset(p);ui.ym=ymOfDate(ui.rg.to);}
     render();},
   'rg-apply':function(){
     var f=($('rgFrom')||{}).value,t=($('rgTo')||{}).value;
@@ -4988,7 +5165,7 @@ var actions={
     if(t<f){toast('The end date is before the start date.');return;}
     if(daysBetween(f,t)>731){toast('Choose a period of two years or less.');return;}
     ui.rg={from:f,to:t};
-    ui.rgChip=['This Week','This Month','Last Month'].filter(function(n){var q=rangePreset(n);return q.from===f&&q.to===t;})[0]||'Custom Range';
+    ui.rgChip=['This Week','This Month','Last Month'].filter(function(n){var q=rangePreset(n);return q.from===f&&q.to===t;})[0]||'Custom Range';ui.ym=ymOfDate(t);
     render();},
   'rg-reset':function(){ui.rg=rangePreset('This Month');ui.rgChip='This Month';render();},
   'rg-detail':function(el){if(can('payroll'))rgDetail(el.dataset.emp);},
@@ -5287,6 +5464,9 @@ var forms={
       rec.agentId=ag.id;
     }
     rec.customerId=bro.id;rec.brokerName=bro.name;rec.brokerMc=normMc(bro.mc)||'';
+    /* the day it is marked delivered decides its week and month; an already delivered load keeps its day */
+    if(rec.status==='Delivered'&&!(l&&isDone(l))){rec.deliveredOn=coToday();rec.deliveredBy=session.name||session.email;}
+    else if(!isDone(rec)){rec.deliveredOn='';rec.deliveredBy='';}
     if(l)Object.assign(l,rec);
     else{db.seq.load+=1;rec.id=uid('l');rec.invoiceId='';rec.bookedAt=new Date().toISOString();db.loads.push(rec);}
     persist();closeModal();render();toast('Load saved'+(said.length?'. '+said.join('. '):'')+(rcFile?'. Uploading the RC…':'')+(session.role==='dispatcher'&&rec.dispatcherId!==session.empId?'. Assigned to '+nm(getEmp(rec.dispatcherId))+', so it is listed under them.':''));
@@ -5312,6 +5492,12 @@ var forms={
       if(want==='Dead')rec.deadAt=now;
       if(want==='Not Responding')rec.noRespAt=now;else if(cur)delete cur.noRespAt;
     }
+    if(d.activeDay!==undefined&&(session.role==='admin'||session.role==='accountant')){
+      var ad=String(d.activeDay||'').trim();
+      if(ad&&!okDate(ad)){toast('Enter the active date as YYYY-MM-DD, or pick it from the calendar.');return;}
+      if(ad&&ad>coToday()){toast('The active date cannot be in the future.');return;}
+      if(ad&&ad!==activeDay(cur))rec.activeAt=ad+'T12:00:00.000Z';else if(!ad&&cur&&cur.activeAt&&(rec.driverStatus||drvStatus(cur))!=='Active')rec.activeAt='';
+    }
     if(cur&&rec.driverStatus&&rec.driverStatus!=='Dead')delete cur.deadAt;
     if(d.id)Object.assign(cur,rec);else{rec.id=uid('d');rec.addedAt=new Date().toISOString();rec.addedBy=session.name||session.email;if(!rec.driverStatus)rec.driverStatus='In Loop';db.drivers.push(rec);}
     persist();closeModal();render();toast(rec.driverStatus==='Dead'&&want==='Dead'?deadMsg(cur||rec):'Driver saved');
@@ -5331,6 +5517,13 @@ var forms={
     var d=formData(f),rec={name:d.name.trim(),title:d.title,payBasis:d.payBasis||'',base:(d.payBasis==='Commission only'||(!d.payBasis&&d.title==='Dispatcher'))?0:Math.round(numv(d.base)),commissionPct:numv(d.commissionPct)};
     if(d.id)Object.assign(getEmp(d.id),rec);else{rec.id=uid('e');db.employees.push(rec);}
     persist();closeModal();render();toast('Employee saved');
+  },
+  'dmonth':function(f){
+    var d=formData(f),ym=d.ym,from=String(d.from||'').trim(),to=String(d.to||'').trim(),err=dmCheck(ym,from,to),box=$('dmErr');
+    if(err){if(box){box.textContent=err;box.hidden=false;}return;}
+    if(!db.dmonths)db.dmonths={};
+    db.dmonths[ym]={from:from,to:to,by:session.name||session.email,at:new Date().toISOString()};
+    persist();closeModal();render();toast(ymLabel(ym)+': '+fmtD(from)+' to '+fmtD(to)+' saved.');
   },
   'settings':function(f){
     if(session.role!=='admin')return;
@@ -5370,6 +5563,12 @@ document.addEventListener('change',function(e){
   if(t.id==='reportYear'&&t.value){ui.reportYear=t.value;render();}
   if(t.id==='ayEmp'&&t.value){ui.ayEmp=t.value;render();}
   if(t.id==='moYm'&&t.value){ui.moYm=t.value;render();}
+  if(t.id==='ovMonth'&&t.value){ui.ovChip='Month';ui.ovYm=t.value;ui.ov={from:mFrom(t.value),to:mTo(t.value)};render();}
+  if(t.dataset&&t.dataset.ymk&&MSET[t.dataset.ymk]&&okMonth(t.value)){MSET[t.dataset.ymk](t.value);render();return;}
+  if(t.id==='slipYm'){ui.slipYm=okMonth(t.value)?t.value:'';var sl=$('slipList');if(sl)sl.innerHTML=slipListHtml();else render();return;}
+  if(t.id==='loadsYm'){ui.loadsYm=okMonth(t.value)?t.value:'';var lb=$('loadsBody');if(lb)lb.innerHTML=loadsTableHtml();else render();return;}
+  if(t.id==='drvYm'){ui.drvYm=okMonth(t.value)?t.value:'';render();return;}
+  if(t.id==='invYm'){ui.invYm=t.value;var ib=$('invBody');if(ib)ib.innerHTML=invListHtml();else render();}
   if(t.id==='bpDriver'){bp.driver=t.value;bpRefresh();}
   if(t.id==='ayYear'&&t.value){ui.ayYear=t.value;render();}
 });
