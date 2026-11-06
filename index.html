@@ -3338,7 +3338,7 @@ function moStatus(c){
 }
 function monthlyOverviewHtml(){
   if(!session||session.role!=='admin')return '';
-  var per=moPeriod(),c=moCalc(per),year=per.ym.slice(0,4),ch=moChartSvg(year);
+  var per=moPeriod(),c=moCalc(per);
   var yms=[];var set={};set[moDefaultYm()]=1;set[TODAY.slice(0,7)]=1;
   db.invoices.forEach(function(i){if(i.paidOn)set[String(i.paidOn).slice(0,7)]=1;});db.expenses.forEach(function(e){if(e.date)set[String(e.date).slice(0,7)]=1;});db.payslips.forEach(function(p){if(p.ym)set[p.ym]=1;});
   yms=Object.keys(set).filter(function(x){return /^\d{4}-\d{2}$/.test(x);}).sort().reverse();
@@ -3355,13 +3355,10 @@ function monthlyOverviewHtml(){
     tile('Total payslips issued',rs(c.salRs),plural(c.sal.length,'payslip')+' · amount issued')+
     tile(pr<0?'Loss':'Profit',rs(Math.abs(pr)),'dispatch fee − expenses − salaries',pr<0?'bad':'good')+'</div>';
   var warn=c.noRate.length?'<p class="small" style="margin:0 14px;color:var(--bad)">No exchange rate saved for '+c.noRate.map(ymLabel).join(', ')+'. Save it on the Payroll page so the dispatch fee is counted in rupees.</p>':'';
-  var rows=ch.data.filter(function(d){return d.incRs||d.exRs||d.salRs;}).map(function(d){var has=true;
-    return '<tr'+(has?'':' class="quiet"')+'><td>'+esc(ymLabel(d.per.ym))+'</td><td class="num">'+(has?rs(d.incRs):'—')+'</td><td class="num">'+(has?rs(d.exRs):'—')+'</td><td class="num">'+(has?rs(d.salRs):'—')+'</td><td class="num">'+(has?'<span class="'+(d.profitRs<0?'neg':'pos')+'">'+(d.profitRs<0?'Loss ':'Profit ')+rs(Math.abs(d.profitRs))+'</span>':'—')+'</td></tr>';}).join('');
   return '<section class="panel mo" id="monthlyOverview"><header><div><h2>Monthly Overview · '+esc(per.label)+'</h2><div class="muted small">'+esc(fmtD(per.from))+' to '+esc(fmtD(per.to))+'. Dispatch fee counts invoices paid in the period. Salaries are the amounts of the payslips issued for the period. Only the admin sees this.</div></div></header>'+
     '<div style="display:grid;gap:12px;padding-bottom:14px">'+ctrl+tiles+warn+
     '<h3 style="margin:4px 14px 0;font-size:.95rem">Driver paid invoices</h3>'+moPaidInvTable(c,false)+
-    '<h3 style="margin:4px 14px 0;font-size:.95rem">'+year+' by month</h3><div class="mochart">'+ch.svg+'</div>'+moLegend()+
-    '<div class="tablewrap" style="margin:0 14px"><table style="min-width:560px"><thead><tr><th>Month</th><th class="num">Dispatch fee</th><th class="num">Expenses</th><th class="num">Salaries</th><th class="num">Profit / Loss</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="muted">No paid invoices, expenses or payslips in '+year+' yet.</td></tr>')+'</tbody></table></div></div></section>';
+    '</div></section>';
 }
 /* invoices paid by drivers in a period: one row per invoice */
 function moPaidInvRows(c){
