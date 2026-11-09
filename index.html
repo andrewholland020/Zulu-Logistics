@@ -2334,7 +2334,7 @@ async function loadNotes(announce){
     var fresh=(r.data||[]).filter(function(n){return !seen[n.id]&&!n.read_at;});
     notes=r.data||[];notesOk=true;notesErr='';
     if(announce&&fresh.length){toast(fresh.length===1?fresh[0].title:fresh.length+' new notifications');deskShow(fresh);}
-    drawBell();
+    drawBell();if(!document.hidden)autoReadPage();
   }catch(e){notesOk=false;notesErr=(e&&e.message)||'network error';drawBell();}
 }
 /* Pick up notifications right after this person's own save, e.g. marking an invoice paid
@@ -2345,6 +2345,7 @@ async function checkOverdue(){
   lastOverdueRun=Date.now();
   try{await sb.rpc('zulu_check_overdue');}catch(e){}
   try{await sb.rpc('zulu_check_documents');}catch(e){}
+  try{await sb.rpc('zulu_clear_read_notifications');}catch(e){}
 }
 async function startNotes(){
   notes=[];lastOverdueRun=0;
@@ -2364,14 +2365,38 @@ function drawBell(){
   var m=$('notesList');if(m)m.innerHTML=notesListHtml();
 }
 function fmtStamp(s){var d=new Date(s);return isNaN(d.getTime())?'':d.toLocaleString('en-US',{timeZone:coTz(),month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
+/* a read notification stays 24 hours, then it goes away (and the database deletes it) */
+var NOTE_KEEP_MS=24*3600*1000,notesSeenNow={},notesMarking={};
+function noteGone(n){if(!n.read_at)return false;var t=Date.parse(n.read_at);return !isNaN(t)&&Date.now()-t>NOTE_KEEP_MS;}
+function notesShown(){return notes.filter(function(n){return !noteGone(n);});}
+/* the pages where a notification's subject is shown: visiting them counts as seeing it */
+function notePages(n){
+  var t=n.link_type||'';
+  if(t==='invoice')return ['invoices'];
+  if(t==='payslip'||t==='payrun')return ['payroll','mypay'];
+  if(t==='mysalary')return ['myreport','mypay'];
+  if(t==='sales_daily')return ['salesdaily','dailyreport'];
+  if(t==='driver'||t==='driver_review'||t==='driver_docs')return ['drivers','driverov','salesdash'];
+  if(t==='followups')return ['followups'];
+  if(t==='load')return ['loads'];
+  return [];
+}
+function autoReadPage(){
+  if(!session||!notesOk||!notes.length)return;
+  var ids=notes.filter(function(n){return !n.read_at&&!notesMarking[n.id]&&notePages(n).indexOf(ui.page)>-1;}).map(function(n){return n.id;});
+  if(ids.length)markNotes(ids);
+}
 function notesListHtml(){
-  if(!notes.length)return '<div class="empty">No notifications yet.</div>';
-  return notes.map(function(n){
-    return '<div class="readyrow'+(n.read_at?' noteread':'')+'"><div class="l"><b>'+(n.read_at?'':'<span class="dot" aria-label="Unread"></span>')+esc(n.title)+'</b><span class="muted small">'+esc(/^Driver marked Dead/.test(n.title||'')?'Driver marked Dead':n.link_type==='mysalary'?'My salary':(NOTE_KIND[n.kind]||''))+' · '+esc(fmtStamp(n.created_at))+'</span><span class="small">'+esc(n.body)+'</span></div>'+
+  var list=notesShown();
+  if(!list.length)return '<div class="empty">No notifications. Read notifications are removed 24 hours after you read them.</div>';
+  return list.map(function(n){
+    var fresh=!n.read_at||notesSeenNow[n.id];
+    return '<div class="readyrow'+(fresh?'':' noteread')+'"><div class="l"><b>'+(fresh?'<span class="dot" aria-label="New"></span>':'')+esc(n.title)+'</b><span class="muted small">'+esc(/^Driver marked Dead/.test(n.title||'')?'Driver marked Dead':n.link_type==='mysalary'?'My salary':(NOTE_KIND[n.kind]||''))+' · '+esc(fmtStamp(n.created_at))+'</span><span class="small">'+esc(n.body)+'</span></div>'+
       '<div class="actions">'+(n.link_type?'<button class="btn sm" type="button" data-action="note-open" data-id="'+esc(n.id)+'">Open</button>':'')+
-      (n.read_at?'':'<button class="btn sm" type="button" data-action="note-read" data-id="'+esc(n.id)+'">Mark read</button>')+'</div></div>';}).join('');
+      '</div></div>';}).join('')+'<p class="muted small" style="margin:0;padding:10px 14px">Notifications are marked read when you open this list or the page they are about, and are removed 24 hours later.</p>';
 }
 function openNotes(){
+  notesSeenNow={};
   if(!notesOk){
     openModal(sheetHead('Notifications')+'<p style="margin:0">Notifications could not be loaded.</p>'+
       '<p class="muted small" style="margin:0">'+(session.role==='admin'?'The notifications update has not been applied to the database. Run <b>migration_2026_10b_notifications_fix.sql</b> in the Supabase SQL Editor, then reload the portal. Details: ':'Please tell the admin. Details: ')+esc(notesErr||'not loaded yet')+'</p>'+
@@ -2380,11 +2405,14 @@ function openNotes(){
   }
   openModal(sheetHead('Notifications')+
     '<div class="panel pad" id="deskPanel">'+deskPanelHtml()+'</div>'+
-    '<div class="actions" style="justify-content:flex-end"><button class="btn sm" type="button" data-action="note-read-all"'+(unreadCount()?'':' disabled')+'>Mark all as read</button></div>'+
     '<div class="panel" id="notesList">'+notesListHtml()+'</div>',true);
+  var ids=notes.filter(function(n){return !n.read_at;}).map(function(n){notesSeenNow[n.id]=1;return n.id;});
+  if(ids.length)markNotes(ids);
 }
 async function markNotes(ids){
+  (ids||[]).forEach(function(id){notesMarking[id]=1;});
   var r=await sb.rpc('zulu_mark_notifications_read',{p_ids:ids});
+  (ids||[]).forEach(function(id){delete notesMarking[id];});
   if(r.error){toast('Could not update: '+r.error.message);return;}
   var now=new Date().toISOString();
   notes.forEach(function(n){if(!ids||ids.indexOf(n.id)>-1)n.read_at=n.read_at||now;});
@@ -2832,6 +2860,7 @@ function render(){
   if(renderBusy){renderAgain=true;return;}
   renderBusy=true;
   try{renderNow();}finally{renderBusy=false;}
+  try{autoReadPage();}catch(e){}
   if(renderAgain){renderAgain=false;setTimeout(render,0);}
 }
 function renderNow(){
@@ -2942,7 +2971,7 @@ function pOverviewDispatcher(){
   var left=wk.filter(function(l){return l.status==='Booked'||l.status==='In transit';});
   var done=mine.filter(function(l){return isDone(l)&&inRange(loadDay(l),r);});
   var sent=db.invoices.filter(function(i){return inRange(i.issued,r);});
-  var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inRange(i.paidOn,r);});
+  var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inRange(i.issued,r);});
   return head('Overview',r.label+(me?' · '+me.name:''),ovBar())+
   '<div class="stats">'+
     statTile('Loads in this period',String(wk.length),plural(left.length,'load')+' still to move')+
@@ -2952,7 +2981,7 @@ function pOverviewDispatcher(){
   '</div>'+
   '<div class="stats">'+
     statTile('Invoices issued',String(sent.length),'on your drivers\' loads, in this period')+
-    statTile('Invoices paid',String(paid.length),'paid in this period')+
+    statTile('Invoices paid',String(paid.length),'issued in this period and paid')+
   '</div>'+
   driverWeek(wk)+
   '<section class="panel"><header><h2>My loads in this period</h2><div class="actions"><button class="btn sm" type="button" data-action="nav" data-page="myreport">Month and year</button><button class="btn sm" type="button" data-action="nav" data-page="loads">All my loads</button></div></header>'+
@@ -3329,12 +3358,25 @@ function moComUsd(p){
 }
 function moMid(a,b){var t=(Date.parse(a+'T12:00:00Z')+Date.parse(b+'T12:00:00Z'))/2;return new Date(t).toISOString().slice(0,10);}
 /* everything for one period: income from paid invoices, expenses, salary (gross) from payslips and custom-range payments */
+/* the first time each month's report was printed (admin), kept with the company settings */
+function moPrintedOn(ym){var m=db.settings.moPrinted;return m&&okDate(m[ym])?m[ym]:'';}
+/* which monthly report an invoice belongs to: the month it was issued in, unless that month's report
+   had already been printed before the driver paid; then the month it was paid in */
+function moInvMoved(inv){
+  if(inv.status!=='Paid'||!okDate(inv.issued)||!okDate(inv.paidOn))return false;
+  var im=ymOfDate(inv.issued),pm=ymOfDate(inv.paidOn),pr=moPrintedOn(im);
+  return pm>im&&!!pr&&pr<inv.paidOn;
+}
+function moInvMonth(inv){return moInvMoved(inv)?ymOfDate(inv.paidOn):ymOfDate(inv.issued);}
 function moCalc(per){
   var inR=function(d){return d&&d>=per.from&&d<=per.to;},noRate={};
-  var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inR(i.paidOn);});
+  /* dispatch fee: invoices issued in the period that the driver has paid, whenever they paid.
+     Month view: if the issue month's report was already printed before the driver paid, the invoice
+     moves to the report of the month it was paid in (and is marked there). */
+  var paid=db.invoices.filter(function(i){return i.status==='Paid'&&(per.mode==='month'?moInvMonth(i)===per.ym:inR(i.issued));});
   var incUsd=0,incRs=0,byDisp={};
   paid.forEach(function(inv){
-    var ym=String(inv.paidOn).slice(0,7),rate=fxFor(ym),t=invTotal(inv);
+    var ym=per.mode==='month'?moInvMonth(inv):ymOfDate(inv.issued),rate=fxFor(ym),t=invTotal(inv);
     incUsd+=t;if(rate)incRs+=t*rate;else noRate[ym]=1;
     inv.loadIds.forEach(function(id){var l=getLoad(id);if(!l)return;var k=l.dispatcherId||'';byDisp[k]=(byDisp[k]||0)+invFee(inv,l);});
     var a=invAdj(inv);if(a)byDisp['_adj']=(byDisp['_adj']||0)+a.amount;
@@ -3395,7 +3437,7 @@ function monthlyOverviewHtml(){
   if(!session||session.role!=='admin')return '';
   var per=moPeriod(),c=moCalc(per);
   var yms=[];var set={};set[moDefaultYm()]=1;set[curYm()]=1;
-  db.invoices.forEach(function(i){if(i.paidOn)set[String(i.paidOn).slice(0,7)]=1;});db.expenses.forEach(function(e){if(e.date)set[String(e.date).slice(0,7)]=1;});db.payslips.forEach(function(p){if(p.ym)set[p.ym]=1;});
+  db.invoices.forEach(function(i){if(okDate(i.issued))set[ymOfDate(i.issued)]=1;});db.expenses.forEach(function(e){if(e.date)set[String(e.date).slice(0,7)]=1;});db.payslips.forEach(function(p){if(p.ym)set[p.ym]=1;});
   yms=Object.keys(set).filter(function(x){return /^\d{4}-\d{2}$/.test(x);}).sort().reverse();
   var isR=per.mode==='range';
   var ctrl='<div class="ctrl"><div class="chips"><button class="chip" type="button" data-action="mo-mode" data-m="Month" aria-pressed="'+!isR+'">Month</button><button class="chip" type="button" data-action="mo-mode" data-m="Custom Range" aria-pressed="'+isR+'">Custom Range</button></div>'+
@@ -3410,24 +3452,30 @@ function monthlyOverviewHtml(){
     tile('Total payslips issued',rs(c.salRs),plural(c.sal.length,'payslip')+' · amount issued')+
     tile(pr<0?'Loss':'Profit',rs(Math.abs(pr)),'dispatch fee − expenses − salaries',pr<0?'bad':'good')+'</div>';
   var warn=c.noRate.length?'<p class="small" style="margin:0 14px;color:var(--bad)">No exchange rate saved for '+c.noRate.map(ymLabel).join(', ')+'. Save it on the Payroll page so the dispatch fee is counted in rupees.</p>':'';
-  return '<section class="panel mo" id="monthlyOverview"><header><div><h2>Monthly Overview · '+esc(per.label)+'</h2><div class="muted small">'+esc(fmtD(per.from))+' to '+esc(fmtD(per.to))+'. Dispatch fee counts invoices paid in the period. Salaries are the amounts of the payslips issued for the period. Only the admin sees this.</div></div></header>'+
+  return '<section class="panel mo" id="monthlyOverview"><header><div><h2>Monthly Overview · '+esc(per.label)+'</h2><div class="muted small">'+esc(fmtD(per.from))+' to '+esc(fmtD(per.to))+'. Dispatch fee counts invoices issued in the period that are paid, even if the driver paid later. Salaries are the amounts of the payslips issued for the period. Only the admin sees this.</div></div></header>'+
     '<div style="display:grid;gap:12px;padding-bottom:14px">'+ctrl+tiles+warn+
     '<h3 style="margin:4px 14px 0;font-size:.95rem">Driver paid invoices</h3>'+moPaidInvTable(c,false)+
     '</div></section>';
 }
 /* invoices paid by drivers in a period: one row per invoice */
 function moPaidInvRows(c){
-  return c.paid.slice().sort(function(a,b){return String(a.paidOn).localeCompare(String(b.paidOn))||String(a.no).localeCompare(String(b.no));}).map(function(inv){
-    var d=getDrv(inv.driverId)||{};return {date:inv.paidOn,no:inv.no,driver:d.name||'Removed driver',mc:d.mc||'—',amt:invTotal(inv)};});
+  return c.paid.slice().sort(function(a,b){return String(a.issued).localeCompare(String(b.issued))||String(a.no).localeCompare(String(b.no));}).map(function(inv){
+    var d=getDrv(inv.driverId)||{},im=ymOfDate(inv.issued),pm=okDate(inv.paidOn)?ymOfDate(inv.paidOn):im;
+    var mn=function(ym){return ymLabel(ym).replace(/ \d{4}$/,'')+(pm.slice(0,4)!==im.slice(0,4)?' '+ym.slice(0,4):'');};
+    var moved=c.per&&c.per.mode==='month'&&moInvMoved(inv);
+    var late=pm>im?(moved?mn(im)+' invoice paid in '+mn(pm)+' (the '+mn(im)+' report was already printed)':'Invoice is '+mn(im)+' but paid in '+mn(pm)):'';
+    return {date:inv.issued,paid:inv.paidOn||'',late:late,moved:moved,no:inv.no,driver:d.name||'Removed driver',mc:d.mc||'—',amt:invTotal(inv)};});
 }
 function moPaidInvTable(c,forPrint){
   var rows=moPaidInvRows(c),drv={};c.paid.forEach(function(i){drv[i.driverId]=1;});
   var n=Object.keys(drv).length,tot=r2(rows.reduce(function(s,x){return s+x.amt;},0));
-  var head=(forPrint?'<h3>Driver paid invoices</h3>':'')+'<p class="small" style="margin:0'+(forPrint?'':' 14px')+'">'+plural(rows.length,'invoice')+' paid by '+plural(n,'driver')+' · '+money(tot)+(c.incRs?' ('+rs(c.incRs)+')':'')+'</p>';
+  var head=(forPrint?'<h3>Driver paid invoices</h3>':'')+'<p class="small" style="margin:0'+(forPrint?'':' 14px')+'">'+(function(){var mv=rows.filter(function(x){return x.moved;}).length,own=rows.length-mv,lt=rows.filter(function(x){return x.late&&!x.moved;}).length;
+      return plural(own,'invoice')+' issued in this period and paid'+(lt?' ('+lt+' paid in a later month)':'')+(mv?' + '+plural(mv,'invoice')+' from an earlier month (highlighted)':'')+' · '+plural(n,'driver')+' · total '+money(tot)+(c.incRs?' ('+rs(c.incRs)+')':'');})()+'</p>'+
+    (!forPrint&&c.per&&c.per.mode==='month'?'<p class="small muted" style="margin:4px 14px 0">'+(moPrintedOn(c.per.ym)?'This report was first printed on '+esc(fmtD(moPrintedOn(c.per.ym)))+'. Invoices of this month paid after that day show in the report of the month they are paid in. <button class="btn sm" type="button" data-action="mo-unprint" data-ym="'+esc(c.per.ym)+'">Clear print record</button>':'Not printed yet. Once you print it, invoices of this month that are paid later will show in the report of the month they are paid in.')+'</p>':'');
   if(!rows.length)return head;
-  return head+'<div class="tablewrap"'+(forPrint?'':' style="margin:0 14px"')+'><table style="min-width:520px"><thead><tr><th>Date</th><th>Driver name</th><th>Driver MC</th><th class="num">Invoice amount ($)</th></tr></thead><tbody>'+
-    rows.map(function(x){return '<tr><td class="nw" style="white-space:nowrap">'+esc(fmtD(x.date))+'</td><td>'+esc(x.driver)+'</td><td class="mono">'+esc(x.mc)+'</td><td class="num">'+money(x.amt)+'</td></tr>';}).join('')+
-    '<tr class="total"><td colspan="3">Total</td><td class="num">'+money(tot)+'</td></tr></tbody></table></div>';
+  return head+'<div class="tablewrap"'+(forPrint?'':' style="margin:0 14px"')+'><table style="min-width:640px"><thead><tr><th>Issued</th><th>Paid on</th><th>Driver name</th><th>Driver MC</th><th class="num">Invoice amount ($)</th></tr></thead><tbody>'+
+    rows.map(function(x){return '<tr'+(x.moved?' style="background:#fff4e0"':'')+'><td class="nw" style="white-space:nowrap'+(x.moved?';background:#fff4e0':'')+'">'+esc(fmtD(x.date))+(x.moved?'<div class="small" style="font-weight:700;color:#8a4b00">From an earlier month</div>':'')+'</td><td style="white-space:nowrap">'+(x.paid?esc(fmtD(x.paid)):'—')+(x.late?'<div class="small" style="color:var(--warn);white-space:normal;font-weight:600">'+esc(x.late)+'</div>':'')+'</td><td>'+esc(x.driver)+'</td><td class="mono">'+esc(x.mc)+'</td><td class="num">'+money(x.amt)+'</td></tr>';}).join('')+
+    '<tr class="total"><td colspan="4">Total</td><td class="num">'+money(tot)+'</td></tr></tbody></table></div>';
 }
 /* the printable report */
 function moReport(){
@@ -3469,7 +3517,8 @@ function pOverviewAdmin(asReport){
   var loads=db.loads.filter(function(l){return inRange(loadDay(l),r);});
   var sales=db.loads.filter(function(l){return isDone(l)&&inRange(loadDay(l),r);});
   var sent=db.invoices.filter(function(i){return inRange(i.issued,r);});
-  var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inRange(i.paidOn,r);});
+  /* an invoice stays in the week and month it was issued in, whenever the driver pays it */
+  var paid=db.invoices.filter(function(i){return i.status==='Paid'&&inRange(i.issued,r);});
   var pend=sent.filter(function(i){return i.status==='Sent';});
   var pendAll=db.invoices.filter(function(i){return i.status==='Sent';});
   var overdue=pendAll.filter(function(i){return i.due<TODAY;}).length;
@@ -3514,7 +3563,7 @@ function pOverviewAdmin(asReport){
     statTile('Active drivers',String(activeN),'of '+db.drivers.length+' drivers, with a load in this period')+
   '</div>'+
   '<div class="stats">'+
-    statTile('Invoices paid',String(paid.length),money(money_(paid))+' paid in this period')+
+    statTile('Invoices paid',String(paid.length),money(money_(paid))+' · issued in this period and paid')+
     statTile('Pending invoices',String(pendAll.length),money(money_(pendAll))+' unpaid in total · '+plural(pend.length,'invoice')+' issued in this period'+(overdue?' · '+overdue+' overdue':''))+
     statTile('Top gross dispatcher',topD?nm(getEmp(topD.id)):'—',topD?money(topD.fees)+' dispatch gross on '+plural(topD.n,'load'):'no deliveries in this period')+
     statTile('Top sales agent',topS?nm(getEmp(topS.id)):'—',topS?plural(topS.n,'active sale')+' from '+plural(topS.nd,'driver')+' · '+money(topS.fees)+' dispatch fees':'no deliveries in this period')+
@@ -5043,7 +5092,13 @@ var actions={
     if(t<f){toast('The end date is before the start date.');return;}
     if(daysBetween(f,t)>62){toast('Choose a period of two months or less.');return;}
     ui.moFrom=f;ui.moTo=t;render();},
-  'mo-print':function(){if(session.role==='admin')moReport();},
+  'mo-print':function(){if(session.role!=='admin')return;
+    var per=moPeriod();
+    if(per.mode==='month'&&!moPrintedOn(per.ym)){db.settings.moPrinted=Object.assign({},db.settings.moPrinted||{});db.settings.moPrinted[per.ym]=coToday();persist();render();}
+    moReport();},
+  'mo-unprint':function(el){if(session.role!=='admin')return;var ym=el.dataset.ym;
+    if(!confirm('Clear the print record of '+dmLabel(ym)+'? Invoices of that month paid later will go back into its report.'))return;
+    db.settings.moPrinted=Object.assign({},db.settings.moPrinted||{});delete db.settings.moPrinted[ym];persist();render();toast('Print record cleared');},
   'dm-edit':function(el){if(session.role==='admin'||session.role==='accountant')dmForm(el.dataset.ym);},
   'dm-clear':function(el){
     var ym=el.dataset.ym;if(dmLocked(ym))return;
