@@ -2015,7 +2015,7 @@ var ICONS={
   close:'<path d="M6 6l12 12M18 6 6 18"/>',
   out:'<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>'
 };
-function mIcon(p){return ic(ICONS[p]||ICONS.menu);}
+function mIcon(p){return ic(ICONS[p]||(p==='myteam'||p==='teams'?ICONS.team:null)||ICONS.menu);}
 function mBellCount(){return session&&notesOk?unreadCount():0;}
 function mLogo(){var l=document.querySelector('link[rel="apple-touch-icon"]');return l?l.href:'';}
 function mTopHtml(){
@@ -2024,14 +2024,14 @@ function mTopHtml(){
     '<button class="mib" type="button" data-action="open-notes" aria-label="Notifications">'+mIcon('bell')+'<span class="js-bell-badge">'+(n?'<span class="badge">'+n+'</span>':'')+'</span></button></header>';
 }
 function mTabsHtml(){
-  var pages=ROLES[session.role].pages,tabs=(MTABS[session.role]||[]).filter(function(p){return pages.indexOf(p)>-1;});
+  var pages=rolePages(),tabs=(MTABS[session.role]||[]).filter(function(p){return pages.indexOf(p)>-1;});
   return '<nav class="mtabs" aria-label="Main">'+tabs.map(function(p){
     return '<button class="mtab" type="button" data-action="nav" data-page="'+p+'"'+(p===ui.page?' aria-current="page"':'')+'>'+mIcon(p)+'<span class="l">'+esc(MSHORT[p]||LABELS[p])+'</span>'+(p==='inbox'?'<span class="js-inbox-badge">'+mInboxBadge()+'</span>':'')+'</button>';
   }).join('')+'<button class="mtab" type="button" data-action="m-menu" aria-haspopup="dialog"'+(tabs.indexOf(ui.page)<0?' aria-current="page"':'')+'>'+mIcon('menu')+'<span class="l">Menu</span></button></nav>';
 }
 function mInboxBadge(){var n=chat.ok?chatUnread():0;return n?'<span class="badge">'+n+'</span>':'';}
 function mMenuHtml(){
-  var pages=ROLES[session.role].pages,n=mBellCount();
+  var pages=rolePages(),n=mBellCount();
   return '<div class="mmenu'+(ui.menuOpen?' open':'')+'" id="mMenu" role="dialog" aria-modal="true" aria-label="Menu"'+(ui.menuOpen?'':' aria-hidden="true"')+'><div class="mscrim" data-action="m-menu-close"></div><div class="msheet">'+
     '<div class="mgrab"></div><div class="mwho"><img alt="" src="'+mLogo()+'"><div><b>'+esc(session.name||ROLES[session.role].label)+'</b><span class="muted small">'+esc(ROLES[session.role].label)+' · '+esc(db.settings.company)+'</span></div>'+
     '<button class="mib" type="button" data-action="m-menu-close" aria-label="Close menu">'+mIcon('close')+'</button></div>'+
@@ -2915,12 +2915,12 @@ function invStatus(inv){if(inv.status==='Sent'&&inv.due<TODAY)return 'Overdue';r
 
 /* ---------- permissions ---------- */
 var ROLES={
-  admin:{label:'Admin',pages:['overview','mreport','inbox','loads','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
-  accountant:{label:'Accountant',pages:['overview','inbox','loads','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
-  dispatcher:{label:'Dispatcher',pages:['overview','inbox','myreport','loads','invoices','driverov','customers','mypay','account']},
+  admin:{label:'Admin',pages:['overview','mreport','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
+  accountant:{label:'Accountant',pages:['overview','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
+  dispatcher:{label:'Dispatcher',pages:['overview','myteam','inbox','myreport','loads','invoices','driverov','customers','mypay','account']},
   sales:{label:'Sales agent',pages:['salesdash','inbox','followups','dailyreport','myreport','mypay','account']}
 };
-var LABELS={mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
+var LABELS={teams:'Dispatch teams',myteam:'My team',mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
 function canSetPw(kind){
   var r=session&&session.role;
   if(r==='admin')return true;
@@ -3106,7 +3106,7 @@ function render(){
 function renderNow(){
   closeCal();
   if(!session){renderLogin();return;}
-  var pages=ROLES[session.role].pages;
+  var pages=rolePages();
   if(pages.indexOf(ui.page)<0)ui.page=pages[0];
   var html=
   '<div class="app"><aside class="rail">'+
@@ -3151,6 +3151,8 @@ function pageHtml(){
     case 'followups':return session.role==='sales'?pFollowups():'';
     case 'salesdaily':return pSalesDaily();
     case 'driverov':return pDriverOv();
+    case 'myteam':return pMyTeam();
+    case 'teams':return pTeams();
     case 'myreport':return session.role==='dispatcher'||session.role==='sales'?pMyReport():'';
     case 'account':return pAccount();
     case 'mypay':return pMyPay();
@@ -3203,7 +3205,52 @@ function readyGroups(){
 }
 function pOverview(){return session.role==='dispatcher'?pOverviewDispatcher():pOverviewAdmin();}
 
+/* the team leader's Overview: the same view the admin has, for the team (their dispatchers, drivers, loads and invoices) */
+function pOverviewLeader(){
+  var t=myTeam(),r=ovRange(),mem=teamIds(t);
+  var tl=db.loads.filter(function(l){return mem.indexOf(l.dispatcherId)>-1;});
+  var tdrv=db.drivers.filter(function(d){return d.teamId===t.id;}),tdIds={};tdrv.forEach(function(d){tdIds[d.id]=1;});
+  var tinv=db.invoices.filter(function(i){return tdIds[i.driverId]||(i.loadIds||[]).some(function(id){var l=getLoad(id);return l&&mem.indexOf(l.dispatcherId)>-1;});});
+  var loads=tl.filter(function(l){return inRange(loadDay(l),r);});
+  var sales=loads.filter(isDone);
+  var sent=tinv.filter(function(i){return inRange(i.issued,r);});
+  var paid=tinv.filter(function(i){return i.status==='Paid'&&inRange(i.issued,r);});
+  var pend=sent.filter(function(i){return i.status==='Sent';});
+  var pendAll=tinv.filter(function(i){return i.status==='Sent';});
+  var overdue=pendAll.filter(function(i){return i.due<TODAY;}).length;
+  var act={};tl.forEach(function(l){if(inRange(l.pickup,r)||inRange(l.delivery,r))act[l.driverId]=1;});
+  var activeN=Object.keys(act).filter(function(id){return getDrv(id);}).length;
+  var rank=mem.map(function(id){var x=loads.filter(function(l){return l.dispatcherId===id;});return {id:id,n:x.length,gross:sumBy(x,function(l){return l.rate;})};})
+    .sort(function(a,b){return b.gross-a.gross||b.n-a.n;});
+  var top=rank[0]&&rank[0].gross>0?rank[0]:null;
+  var bookedToday=tl.filter(function(l){return bookedOn(l)===coToday();}).length;
+  var money_=function(a){return sumBy(a,function(i){return i.total;});};
+  var me=getEmp(session.empId);
+  var rankPanel='<section class="panel"><header><div><h2>Top dispatchers · '+esc(t.name)+'</h2><div class="muted small">Gross = load rates of the team\'s loads in '+esc(r.label)+' (by drop-off day).</div></div><button class="btn sm" type="button" data-action="nav" data-page="myteam">Open '+esc(t.name)+'</button></header>'+
+    '<div class="tablewrap"><table><thead><tr><th>#</th><th>Dispatcher</th><th class="num">Booked today</th><th class="num">Loads</th><th class="num">Gross</th></tr></thead><tbody>'+rank.map(function(x,i){
+      return '<tr><td>'+(i+1)+'</td><td><b>'+esc(nm(getEmp(x.id)))+'</b>'+(x.id===t.leaderId?' <span class="pill p-good">Leader</span>':'')+(x.id===session.empId?' <span class="muted small">(you)</span>':'')+'</td><td class="num">'+tl.filter(function(l){return l.dispatcherId===x.id&&bookedOn(l)===coToday();}).length+'</td><td class="num">'+x.n+'</td><td class="num">'+money(x.gross)+'</td></tr>';}).join('')+'</tbody></table></div></section>';
+  var cur=inRange(TODAY,r),mine=db.loads.filter(function(l){return l.dispatcherId===session.empId;});
+  var wk=mine.filter(function(l){return (cur&&l.status==='In transit')||inRange(l.pickup,r)||inRange(l.delivery,r);}).sort(function(a,b){return String(a.pickup).localeCompare(String(b.pickup));});
+  return head('Overview',r.label+' · '+t.name+(me?' · '+me.name+' (team leader)':''),ovBar())+
+  '<div class="stats">'+
+    statTile('No. of loads',String(loads.length),'team loads with delivery in this period')+
+    statTile('No. of sales',String(sales.length),'team loads delivered in this period')+
+    statTile('Invoices sent',String(sent.length),'issued in this period')+
+    statTile('Active drivers',String(activeN),'of '+tdrv.filter(function(d){return !isDead(d);}).length+' team drivers, with a load in this period')+
+  '</div>'+
+  '<div class="stats">'+
+    statTile('Invoices paid',String(paid.length),money(money_(paid))+' · issued in this period and paid')+
+    statTile('Pending invoices',String(pendAll.length),money(money_(pendAll))+' unpaid in total · '+plural(pend.length,'invoice')+' issued in this period'+(overdue?' · '+overdue+' overdue':''))+
+    statTile('Top gross dispatcher',top?nm(getEmp(top.id)):'—',top?money(top.gross)+' gross on '+plural(top.n,'load'):'no team loads in this period')+
+    statTile('Booked today',String(bookedToday),'team loads booked on '+fmtD(coToday()))+
+  '</div>'+
+  todayPanel({loads:tl,disps:mem.map(getEmp).filter(Boolean)})+
+  rankPanel+
+  driverWeek(wk)+
+  '<section class="panel"><header><h2>My loads in this period</h2></header>'+(wk.length?wk.map(loadLine).join(''):'<div class="empty">No loads in this period.</div>')+'</section>';
+}
 function pOverviewDispatcher(){
+  if(amLeader())return pOverviewLeader();
   var r=ovRange(),me=getEmp(session.empId),cur=inRange(TODAY,r);
   var mine=db.loads.filter(function(l){return l.dispatcherId===session.empId;});
   var wk=mine.filter(function(l){return (cur&&l.status==='In transit')||inRange(l.pickup,r)||inRange(l.delivery,r);})
@@ -3223,6 +3270,7 @@ function pOverviewDispatcher(){
     statTile('Invoices issued',String(sent.length),'on your drivers\' loads, in this period')+
     statTile('Invoices paid',String(paid.length),'issued in this period and paid')+
   '</div>'+
+  teamOverviewPanel(r)+
   driverWeek(wk)+
   '<section class="panel"><header><h2>My loads in this period</h2><div class="actions"><button class="btn sm" type="button" data-action="nav" data-page="myreport">Month and year</button><button class="btn sm" type="button" data-action="nav" data-page="loads">All my loads</button></div></header>'+
     (wk.length?wk.map(loadLine).join(''):'<div class="empty">No loads in this period.</div>')+'</section>';
@@ -3988,7 +4036,7 @@ function loadForm(l){
   '<form class="form" data-form="load"><input type="hidden" name="id" value="'+esc(l.id||'')+'">'+
     field('Load number','ref',l.ref,{required:true})+
     field('Status','status',l.status,{type:'select',options:stOpts,disabled:locked})+
-    field('Driver','driverId',l.driverId,{type:'select',options:db.drivers.filter(function(d){return !isDead(d)||d.id===l.driverId;}).map(function(d){return [d.id,d.name+' · '+d.carrier+(isDead(d)?' (Dead)':'')];}),disabled:locked})+
+    field('Driver','driverId',l.driverId,{type:'select',options:db.drivers.filter(function(d){return (!isDead(d)||d.id===l.driverId)&&(session.role!=='dispatcher'||d.dispatcherId===session.empId||d.id===l.driverId);}).map(function(d){return [d.id,d.name+' · '+d.carrier+(isDead(d)?' (Dead)':'')];}),disabled:locked})+
     field('Broker company','brokerName',(getCust(l.customerId)||{}).name||l.brokerName||'',{required:true,list:'brokerList',hint:'Pick an existing broker or type a new company name. A new name is added to Brokers automatically.'})+
     '<datalist id="brokerList">'+db.customers.map(function(c){return '<option value="'+esc(c.name)+'">'+esc(c.contact||'')+'</option>';}).join('')+'</datalist>'+
     '<input type="hidden" name="brokerMc" id="f_brokerMc" value="'+esc(l.brokerMc||(getCust(l.customerId)||{}).mc||'')+'">'+
@@ -4029,7 +4077,7 @@ function pDrivers(){
     return '<tr'+(isDead(d)?' class="quiet"':'')+'><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier)+'</span>'+(d.addedByRole==='sales'&&d.addedAt?'<span class="muted small">Added '+fmtD(dayOf(d.addedAt))+' by '+esc(d.addedBy||nm(getEmp(d.salesAgentId)))+'</span>':'')+'</div></td>'+
       '<td><div class="stack"><span class="mono">'+esc(d.mc)+'</span><span class="muted small">'+esc(d.phone)+'</span><span class="muted small">'+esc(d.email||'')+'</span></div></td>'+
       '<td>'+esc(d.salesAgentId?nm(getEmp(d.salesAgentId)):'—')+'</td>'+
-      '<td>'+(d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):(isDead(d)?'—':'<span class="pill p-delivered">Awaiting dispatcher</span>'))+'</td>'+
+      '<td>'+(d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):(isDead(d)?'—':'<span class="pill p-delivered">Awaiting dispatcher</span>'))+(d.teamId&&getTeam(d.teamId)?'<div class="muted small">'+esc(getTeam(d.teamId).name)+'</div>':'')+'</td>'+
       '<td>'+stPill(drvStatus(d))+activeNote(d)+'</td>'+
       '<td class="num">'+d.feePct+'%</td><td class="num">'+(dym?'<b>'+mst(d).n+'</b><div class="muted small">'+mst(d).deliv+' delivered</div>':ls.length)+'</td>'+
       (dym?'<td class="num"><b>'+money(mst(d).rev)+'</b><div class="muted small">'+money(mst(d).fees)+' dispatch fee</div></td>':'')+
@@ -4066,6 +4114,7 @@ function driverForm(d){
     field('Phone','phone',d.phone,{type:'tel'})+
     field('Email','email',d.email||'',{type:'email'})+
     field('Dispatch fee (%)','feePct',d.feePct,{type:'number',step:'0.1',min:0,max:100,required:true,hint:'Share of each load rate your company keeps.'})+
+    ((session.role==='admin'||session.role==='accountant')&&teamsList().length?field('Dispatch team','teamId',d.teamId||'',{type:'select',options:[['','No team']].concat(teamsList().map(function(t){return [t.id,t.name];})),hint:'The team leader can then choose this driver\'s dispatcher from their team.'}):'')+
     field('Dispatcher','dispatcherId',d.dispatcherId||'',{type:'select',options:[['','None']].concat(staff('Dispatcher').map(function(e){return [e.id,e.name];})),hint:staff('Dispatcher').length?'Books this driver\'s loads and earns commission on them.':'No dispatchers yet. Add one on the Team page, then choose them here.'})+
     (d.id&&d.addedByRole==='sales'?'<p class="small full" style="margin:0;padding:8px 10px;background:var(--bg-2,#f4f6f8);border-radius:6px">Added by <b>'+esc(nm(getEmp(d.salesAgentId)))+'</b>'+(d.addedAt?' on '+fmtD(dayOf(d.addedAt)):'')+'. Check the details and documents, then choose a dispatcher. The dispatcher is notified and gets access to everything the sales agent submitted.</p>':'')+
     field('Status','driverStatus',d.id?drvStatus(d):'In Loop',{type:'select',options:DSTATUS,hint:'Active needs a completed load. Not Responding: the driver is not answering. Dead removes the driver from dispatchers\' lists but keeps every record.'})+
@@ -4907,11 +4956,11 @@ function prBar(k){
     '<button class="btn primary sm" type="button" data-action="pr-apply" data-k="'+k+'">Apply Filter</button><button class="btn sm" type="button" data-action="pr-reset" data-k="'+k+'">Reset</button></div>':'')+'</div>';
 }
 function bookedClock(l){var d=new Date(l.bookedAt);return isNaN(d.getTime())?'':d.toLocaleTimeString('en-US',{timeZone:coTz(),hour:'numeric',minute:'2-digit'});}
-function todayPanel(){
-  var fin=isFinance(),c=fin?prCur('bk'):{from:coToday(),to:coToday()},multi=c.from!==c.to,isToday=!fin||prChip('bk')==='Today';
-  var disp=fin?(ui.bkDisp||''):'';
-  if(disp&&!getEmp(disp))disp='';
-  var ls=db.loads.filter(function(l){var b=bookedOn(l);return !!b&&b>=c.from&&b<=c.to&&(!disp||l.dispatcherId===disp);})
+function todayPanel(scope){
+  var fin=isFinance()||!!scope,c=fin?prCur('bk'):{from:coToday(),to:coToday()},multi=c.from!==c.to,isToday=!fin||prChip('bk')==='Today';
+  var disp=fin?(ui.bkDisp||''):'',dlist=scope?scope.disps:staff('Dispatcher');
+  if(disp&&(!getEmp(disp)||!dlist.some(function(e){return e.id===disp;})))disp='';
+  var ls=(scope?scope.loads:db.loads).filter(function(l){var b=bookedOn(l);return !!b&&b>=c.from&&b<=c.to&&(!disp||l.dispatcherId===disp);})
     .sort(function(a,b){return String(b.bookedAt).localeCompare(String(a.bookedAt));});
   var body=ls.length?'<div class="tablewrap"><table style="min-width:'+(multi?1080:960)+'px"><thead><tr><th>Load number</th>'+(multi?'<th>Booked</th>':'')+'<th>Driver</th><th>Dispatcher</th><th>Pickup location</th><th>Drop-off location</th><th>Status</th><th class="num">Load rate</th><th class="num">Total dispatch fee</th></tr></thead><tbody>'+
     ls.map(function(l){return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td>'+(multi?'<td class="small" style="white-space:nowrap">'+esc(fmtD(bookedOn(l)))+'<div class="muted">'+esc(bookedClock(l))+'</div></td>':'')+'<td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(nm(getEmp(l.dispatcherId)))+'</td><td>'+esc(l.origin)+'</td><td>'+esc(l.dest)+'</td><td>'+pill(l.status)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(loadFee(l))+'</td></tr>';}).join('')+
@@ -4923,7 +4972,7 @@ function todayPanel(){
     byDisp='<div class="chips" style="padding:10px 16px;border-bottom:1px solid var(--line)">'+Object.keys(g).sort(function(a,b){return g[b].n-g[a].n;}).map(function(k){
       return '<span class="mchip" style="font-size:.8rem;border:1px solid var(--line);border-radius:99px;padding:2px 10px;background:var(--surface2)"><b>'+esc(k?nm(getEmp(k)):'No dispatcher')+'</b> · '+plural(g[k].n,'load')+' · '+money(r2(g[k].fees))+'</span>';}).join('')+'</div>';
   }
-  var sel=fin?'<select id="bkDisp" aria-label="Show one dispatcher" style="max-width:220px"><option value="">All dispatchers</option>'+staff('Dispatcher').map(function(e){return '<option value="'+esc(e.id)+'"'+(disp===e.id?' selected':'')+'>'+esc(e.name)+'</option>';}).join('')+'</select>':'';
+  var sel=fin?'<select id="bkDisp" aria-label="Show one dispatcher" style="max-width:220px"><option value="">All dispatchers</option>'+dlist.map(function(e){return '<option value="'+esc(e.id)+'"'+(disp===e.id?' selected':'')+'>'+esc(e.name)+'</option>';}).join('')+'</select>':'';
   return '<section class="panel" id="todayPanel"><header><div><h2>'+(isToday?'Today\'s Booked Loads':'Booked Loads')+'</h2><div class="muted small">'+esc(fin?(prChip('bk')!=='Custom Range'&&!isToday?prChip('bk')+' · ':'')+prLabel('bk'):fmtD(c.from))+' · '+plural(ls.length,'load')+' booked'+(disp?' by '+esc(nm(getEmp(disp))):'')+'</div></div>'+sel+'</header>'+
     (fin?prBar('bk'):'')+byDisp+body+'</section>';
 }
@@ -5042,7 +5091,8 @@ function teamSection(kind,plural,blurb){
 function pTeam(){
   return head('Team','Pay terms used by payroll and load assignment')+
     teamSection('Sales agent','Sales agents','Earn commission on dispatch fees from the drivers they signed.')+
-    teamSection('Dispatcher','Dispatchers','Earn commission on dispatch fees from the loads they dispatch.');
+    teamSection('Dispatcher','Dispatchers','Earn commission on dispatch fees from the loads they dispatch.')+
+    teamsSection();
 }
 /* ---------- employee documents (admin and accountant only; private bucket) ---------- */
 var EMP_DOC_BUCKET='employee-docs',empDocs={},EMP_DOC_KINDS=['Contract','ID card (CNIC)','CV / resume','Other'];
@@ -5259,6 +5309,15 @@ var actions={
   'sales-edit-driver':function(el){var d=getDrv(el.dataset.id);if(d&&d.salesAgentId===session.empId&&!isDead(d))salesDriverForm(d);},
   'sales-more-docs':function(){var box=$('docRows');if(!box)return;var n=box.querySelectorAll('.docrow').length;if(n>=10){toast('Add more from Documents after saving.');return;}box.insertAdjacentHTML('beforeend',docRowHtml(n));},
   'driver-info':function(el){driverInfo(el.dataset.id);},
+  'tm-invoices':function(el){teamInvoices(el.dataset.id);},
+  'tm-remove':function(el){var h=$('tmMembers');if(!h)return;h.value=String(h.value||'').split(',').filter(function(x){return x&&x!==el.dataset.id;}).join(',');teamFormDraw();},
+  'team-new':function(){if(session.role==='admin'||session.role==='accountant')teamForm();},
+  'team-edit':function(el){if(session.role==='admin'||session.role==='accountant')teamForm(getTeam(el.dataset.id));},
+  'team-del':function(el){if(session.role!=='admin'&&session.role!=='accountant')return;var t=getTeam(el.dataset.id);if(!t)return;
+    if(!confirmTwice(el,'Click again to delete'))return;
+    db.settings.teams=teamsList().filter(function(x){return x.id!==t.id;});
+    db.drivers.forEach(function(d){if(d.teamId===t.id)d.teamId='';});
+    persist();render();toast(t.name+' deleted. Its drivers keep their dispatcher.');},
   'drv-status':function(el){var b=el;b.disabled=true;setDriverStatus(el.dataset.id,el.dataset.st).then(function(){b.disabled=false;},function(){b.disabled=false;});},
   'sr-period':function(el){ui.srPeriod=el.dataset.p;render();},
   'mr-mode':function(el){ui.mrMode=el.dataset.p;render();},
@@ -5828,6 +5887,7 @@ var forms={
   },
   'driver':function(f){
     var d=formData(f),rec={name:d.name.trim(),carrier:d.carrier.trim(),mc:d.mc.trim(),phone:d.phone.trim(),email:(d.email||'').trim(),feePct:numv(d.feePct),salesAgentId:d.salesAgentId||'',dispatcherId:d.dispatcherId||''};
+    if(d.teamId!==undefined)rec.teamId=teamsList().some(function(t){return t.id===d.teamId;})?d.teamId:'';
     if(d.truckLen!==undefined){
       if(String(d.truckLen||'').trim()&&!truckLenOf(d.truckLen)){toast('Enter the truck length in feet, for example 40.');return;}
       if(!d.id&&!truckLenOf(d.truckLen)){toast('Enter the truck length (ft). A new driver cannot be added without it.');return;}
@@ -5866,6 +5926,20 @@ var forms={
       cur.name=rec.name;cur.mc=rec.mc;
     }else if(cur)Object.assign(cur,rec);else{rec.id=uid('c');db.customers.push(rec);}
     persist();closeModal();render();toast('Broker saved');
+  },
+  'team':function(f){
+    if(session.role!=='admin'&&session.role!=='accountant')return;
+    var d=formData(f),name=String(d.name||'').trim();if(!name){toast('Enter the team name.');return;}
+    var others=teamsList().filter(function(t){return t.id!==d.id;});
+    if(others.some(function(t){return t.name.toLowerCase()===name.toLowerCase();})){toast('There is already a team with that name.');return;}
+    var mem=String(d.members||'').split(',').filter(function(x){return x&&getEmp(x);});
+    var lead=d.leaderId||'';if(lead&&mem.indexOf(lead)<0)mem.unshift(lead);
+    var clash=mem.filter(function(id){return others.some(function(t){return teamIds(t).indexOf(id)>-1;});});
+    if(clash.length){toast(nm(getEmp(clash[0]))+' is already in another team.');return;}
+    if(!lead){toast('Choose the team leader.');return;}
+    var rec={id:d.id||uid('tm'),name:name,leaderId:lead,memberIds:mem.filter(function(id){return id!==lead;})};
+    db.settings.teams=others.concat([rec]).sort(function(a,b){return a.name.localeCompare(b.name);});
+    persist();closeModal();render();toast(name+' saved');
   },
   'emp':function(f){
     var d=formData(f),rec={name:d.name.trim(),title:d.title,phone:String(d.phone||'').trim(),payBasis:d.payBasis||'',base:(d.payBasis==='Commission only'||(!d.payBasis&&d.title==='Dispatcher'))?0:Math.round(numv(d.base)),commissionPct:numv(d.commissionPct)};
@@ -5925,6 +5999,28 @@ document.addEventListener('change',function(e){
   if(t.id==='ovMonth'&&t.value){ui.ovChip='Month';ui.ovYm=t.value;ui.ov={from:mFrom(t.value),to:mTo(t.value)};render();}
   if(t.dataset&&t.dataset.ymk&&MSET[t.dataset.ymk]&&okMonth(t.value)){MSET[t.dataset.ymk](t.value);render();return;}
   if(t.id==='lookFontSel'){if(session.role!=='admin')return;db.settings.font=t.value;applyLook();persist();toast('Font saved for everyone');return;}
+  if(t.id==='tmP'){ui.tmP=t.value;render();return;}
+  if(t.id==='tmYm'){if(okMonth(t.value)){ui.tmP='Month';ui.tmYm=t.value;render();}return;}
+  if(t.id==='tmAdd'){if(t.value){var h=$('tmMembers');h.value=String(h.value||'').split(',').filter(Boolean).concat([t.value]).join(',');teamFormDraw();}return;}
+  if(t.name==='leaderId'&&t.closest&&t.closest('#teamFormEl')){teamFormDraw();return;}
+  if(t.id==='tmTeamSel'){ui.tmTeam=t.value;render();return;}
+  if(t.dataset&&t.dataset.tmAssign&&(session.role==='admin'||session.role==='accountant')){
+    var odv=getDrv(t.dataset.tmAssign),otm=odv&&getTeam(odv.teamId);if(!odv||!otm)return;
+    if(t.value&&teamIds(otm).indexOf(t.value)<0){toast('Choose a dispatcher from '+otm.name+'.');render();return;}
+    odv.dispatcherId=t.value;persist();render();toast(t.value?(odv.name+' → '+nm(getEmp(t.value))):(odv.name+' is waiting for a dispatcher'));return;
+  }
+  if(t.dataset&&t.dataset.tmAssign){
+    var did=t.dataset.tmAssign,emp=t.value,dv=getDrv(did),tm=myTeam();if(!dv||!tm||!amLeader())return;
+    if(emp&&teamIds(tm).indexOf(emp)<0){toast('Choose a dispatcher from your team.');render();return;}
+    t.disabled=true;
+    sb.rpc('zulu_team_assign',{p_driver:did,p_emp:emp}).then(function(r){
+      if(r.error){toast('Could not change the dispatcher: '+r.error.message);render();return;}
+      dv.dispatcherId=emp;
+      try{var k='drivers|'+did,x=snapshot()[k];if(x)synced[k]=x.sig;}catch(e){}
+      teamStats.key='';render();toast(emp?(dv.name+' → '+nm(getEmp(emp))):(dv.name+' is waiting for a dispatcher'));
+    },function(e){toast('Could not change the dispatcher: '+((e&&e.message)||'network error'));render();});
+    return;
+  }
   if(t.id==='slipYm'){ui.slipYm=okMonth(t.value)?t.value:'';var sl=$('slipList');if(sl)sl.innerHTML=slipListHtml();else render();return;}
   if(t.id==='loadsYm'){ui.loadsYm=okMonth(t.value)?t.value:'';var lb=$('loadsBody');if(lb)lb.innerHTML=loadsTableHtml();else render();return;}
   if(t.id==='drvYm'){ui.drvYm=okMonth(t.value)?t.value:'';render();return;}
@@ -6049,6 +6145,160 @@ function modeToggleHtml(){
   return '<div class="modeseg" role="radiogroup" aria-label="Appearance"'+(fixed?' title="This theme is always dark"':'')+'>'+
     '<button type="button" role="radio" aria-checked="'+(!dk)+'" data-action="mode-set" data-m="light"'+(fixed?' disabled':'')+'>'+sun+'<span>Light</span></button>'+
     '<button type="button" role="radio" aria-checked="'+dk+'" data-action="mode-set" data-m="dark"'+(fixed?' disabled':'')+'>'+moon+'<span>Dark</span></button></div>';
+}
+
+/* ---------- dispatch teams ----------
+   The admin or accountant makes the teams (Team page) and puts drivers in a team (driver form).
+   Teams are kept in the company settings: [{id,name,leaderId,memberIds:[]}]. A dispatcher is in one team at most.
+   Team leader: sees the team's drivers, chats and invoices, the team's loads, today's booked loads and the
+   top dispatchers, and chooses which team dispatcher handles each team driver.
+   Team member: sees the team's drivers, chats and invoices, the team driver count and the top dispatchers. */
+function teamsList(){return (db.settings&&Array.isArray(db.settings.teams))?db.settings.teams:[];}
+function getTeam(id){return teamsList().find(function(t){return t.id===id;});}
+function teamIds(t){var a=[];if(t.leaderId)a.push(t.leaderId);(t.memberIds||[]).forEach(function(x){if(x&&a.indexOf(x)<0)a.push(x);});return a;}
+function teamOf(empId){return empId?teamsList().find(function(t){return teamIds(t).indexOf(empId)>-1;}):null;}
+function myTeam(){return session&&session.role==='dispatcher'?teamOf(session.empId):null;}
+function amLeader(){var t=myTeam();return !!t&&t.leaderId===session.empId;}
+function teamDrivers(t){return db.drivers.filter(function(d){return d.teamId===t.id&&!isDead(d);});}
+try{Object.defineProperty(LABELS,'myteam',{get:function(){var t=session&&myTeam();return t?t.name:'My team';},enumerable:true,configurable:true});}catch(e){}
+function rolePages(){var p=ROLES[session.role].pages;return session.role==='dispatcher'&&!myTeam()?p.filter(function(x){return x!=='myteam';}):p;}
+
+/* admin / accountant: Team page section */
+function teamsSection(){
+  var list=teamsList();
+  var rows=list.map(function(t){
+    var mem=teamIds(t).map(function(id){var e=getEmp(id);return esc(e?e.name:'Removed')+(id===t.leaderId?' <span class="pill p-good">Leader</span>':'');}).join(', ');
+    var nd=db.drivers.filter(function(d){return d.teamId===t.id&&!isDead(d);}).length;
+    return '<tr><td><b>'+esc(t.name)+'</b></td><td>'+(mem||'<span class="muted">No dispatchers yet</span>')+'</td><td class="num">'+nd+'</td>'+
+      '<td><div class="rowact"><button class="btn sm" type="button" data-action="team-edit" data-id="'+esc(t.id)+'">Edit</button><button class="btn sm danger" type="button" data-action="team-del" data-id="'+esc(t.id)+'">Delete</button></div></td></tr>';}).join('');
+  return '<section class="panel"><header><div><h2>Dispatch teams</h2><div class="muted small">Group dispatchers into teams with a leader. Put drivers in a team from the driver form; the leader then chooses the dispatcher.</div></div><button class="btn primary sm" type="button" data-action="team-new">Add dispatch team</button></header>'+
+    (rows?'<div class="tablewrap"><table><thead><tr><th>Team</th><th>Dispatchers</th><th class="num">Drivers</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No dispatch teams yet. Add one, for example Team Z or Team Ray.</div>')+'</section>';
+}
+function teamForm(t){
+  t=t||{id:'',name:'',leaderId:'',memberIds:[]};
+  var disp=staff('Dispatcher'),free=function(e){var o=teamOf(e.id);return !o||o.id===t.id;};
+  var mem=(t.memberIds||[]).filter(function(id){return id!==t.leaderId&&getEmp(id);});
+  openModal(sheetHead(t.id?'Edit '+t.name:'Add dispatch team')+
+    '<form class="form" data-form="team" id="teamFormEl"><input type="hidden" name="id" value="'+esc(t.id)+'"><input type="hidden" name="members" id="tmMembers" value="'+esc(mem.join(','))+'">'+
+    field('Team name','name',t.name,{required:true,placeholder:'For example Team Z'})+
+    field('Team leader','leaderId',t.leaderId||'',{type:'select',options:[['','Choose a dispatcher']].concat(disp.filter(free).map(function(e){return [e.id,e.name];})),hint:'The leader is also a dispatcher and books loads as before.'})+
+    '<div style="grid-column:1/-1;display:grid;gap:10px">'+
+      '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;border-top:1px solid var(--line);padding-top:12px"><b>Team members</b><span class="muted small" id="tmCount"></span></div>'+
+      '<div id="tmList" style="display:grid;gap:6px"></div>'+
+      '<label class="field" style="margin:0"><span>Add a dispatcher</span><select id="tmAdd" aria-label="Add a dispatcher to the team"></select></label>'+
+      '<p class="muted small" style="margin:0">Only dispatchers who are not in another team are listed. A dispatcher can be in one team only.</p>'+
+    '</div>'+
+    '<div class="formfoot"><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save team</button></div></form>');
+  teamFormDraw();
+}
+/* redraw the members list and the "Add a dispatcher" list inside the team form */
+function teamFormDraw(){
+  var f=$('teamFormEl');if(!f)return;
+  var id=f.querySelector('[name=id]').value,lead=f.querySelector('[name=leaderId]').value;
+  var mem=String($('tmMembers').value||'').split(',').filter(function(x){return x&&x!==lead&&getEmp(x);});
+  $('tmMembers').value=mem.join(',');
+  var row=function(eid,isLead){var e=getEmp(eid);
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)">'+
+      '<span style="display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:.8rem">'+esc(String(e?e.name:'?').trim().charAt(0).toUpperCase())+'</span>'+
+      '<b style="flex:1">'+esc(e?e.name:'Removed')+'</b>'+
+      (isLead?'<span class="pill p-good">Leader</span>':'<button class="btn sm" type="button" data-action="tm-remove" data-id="'+esc(eid)+'" aria-label="Remove '+esc(e?e.name:'')+' from the team">Remove</button>')+'</div>';};
+  $('tmList').innerHTML=(lead?row(lead,true):'')+mem.map(function(x){return row(x,false);}).join('')||'<div class="muted small">No dispatchers yet. Choose the leader, then add members below.</div>';
+  var n=(lead?1:0)+mem.length;$('tmCount').textContent=n?n+(n===1?' dispatcher':' dispatchers'):'';
+  var avail=staff('Dispatcher').filter(function(e){var o=teamOf(e.id);return (!o||o.id===id)&&e.id!==lead&&mem.indexOf(e.id)<0;});
+  var sel=$('tmAdd');
+  sel.innerHTML=avail.length?'<option value="">Choose a dispatcher to add</option>'+avail.map(function(e){return '<option value="'+esc(e.id)+'">'+esc(e.name)+'</option>';}).join(''):'<option value="">Every dispatcher is already in a team</option>';
+  sel.disabled=!avail.length;
+}
+
+/* dispatcher: My team page */
+var teamStats={key:'',data:null,err:''};
+function tmRange(){
+  var p=ui.tmP||'This Week';
+  if(p==='Month'&&ui.tmYm)return {p:p,from:mFrom(ui.tmYm),to:mTo(ui.tmYm),label:dmLabel(ui.tmYm)};
+  var r=rangePreset(p);return {p:p,from:r.from,to:r.to,label:p+' · '+fmtD(r.from)+' to '+fmtD(r.to)};
+}
+function loadTeamStats(force,rr){
+  var r=rr||tmRange(),key=r.from+'|'+r.to+'|'+coToday();
+  if(!force&&teamStats.key===key&&(teamStats.data||teamStats.err))return;
+  teamStats.key=key;teamStats.data=null;teamStats.err='';
+  sb.rpc('zulu_team_stats',{p_from:r.from,p_to:r.to,p_today:coToday(),p_tz:coTz()}).then(function(res){
+    if(teamStats.key!==key)return;
+    if(res.error){teamStats.err=res.error.message||'error';}else teamStats.data=res.data||{};
+    if(ui.page==='myteam'||ui.page==='overview')render();
+  },function(e){teamStats.err=(e&&e.message)||'network error';if(ui.page==='myteam'||ui.page==='overview')render();});
+}
+/* the office (admin / accountant) works the numbers out from the loads it can already see */
+/* Overview of a dispatcher in a team: today's bookings (leader) and the team's top dispatchers, above "Drivers in this period" */
+function teamOverviewPanel(r){
+  var t=myTeam();if(!t)return '';
+  var lead=amLeader(),rr={from:r.start,to:r.end};
+  loadTeamStats(false,rr);
+  var S=teamStats.key===rr.from+'|'+rr.to+'|'+coToday()?teamStats.data:null;
+  if(teamStats.err&&!S)return '';
+  var rank=(S&&S.dispatchers)||[],today={};((S&&S.today)||[]).forEach(function(x){today[x.dispatcher||'']=(today[x.dispatcher||'']||0)+1;});
+  var head2='<header><div><h2>'+esc(t.name)+(lead?' · booked today and top dispatchers':' · top dispatchers')+'</h2><div class="muted small">'+
+    (lead&&S?'<b style="color:var(--ink);font-size:1rem">'+plural(Number(S.today_count)||0,'load')+' booked today</b> by your team ('+esc(fmtD(coToday()))+'). ':'')+
+    'Gross = load rates of the loads in '+esc(r.label)+' (by drop-off day).</div></div><button class="btn sm" type="button" data-action="nav" data-page="myteam">Open '+esc(t.name)+'</button></header>';
+  if(!S)return '<section class="panel">'+head2+'<div class="pad muted">Loading…</div></section>';
+  return '<section class="panel">'+head2+(rank.length?'<div class="tablewrap"><table><thead><tr><th>#</th><th>Dispatcher</th>'+(lead?'<th class="num">Booked today</th>':'')+'<th class="num">Loads</th><th class="num">Gross</th></tr></thead><tbody>'+rank.map(function(x,i){
+      return '<tr><td>'+(i+1)+'</td><td><b>'+esc(x.name||'')+'</b>'+(x.emp===t.leaderId?' <span class="pill p-good">Leader</span>':'')+(x.emp===session.empId?' <span class="muted small">(you)</span>':'')+'</td>'+(lead?'<td class="num">'+(today[x.name||'']||0)+'</td>':'')+'<td class="num">'+(Number(x.loads)||0)+'</td><td class="num">'+money(Number(x.gross)||0)+'</td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">No dispatchers in this team.</div>')+'</section>';
+}
+function officeTeamStats(t,r){
+  var mem=teamIds(t),today=coToday();
+  var ls=db.loads.filter(function(l){return mem.indexOf(l.dispatcherId)>-1;});
+  var lp=ls.filter(function(l){var d=loadDay(l);return d>=r.from&&d<=r.to;});
+  var per=mem.map(function(id){var x=lp.filter(function(l){return l.dispatcherId===id;});return {emp:id,name:nm(getEmp(id)),loads:x.length,gross:x.reduce(function(a,l){return a+(Number(l.rate)||0);},0)};})
+    .sort(function(a,b){return b.gross-a.gross||b.loads-a.loads||String(a.name).localeCompare(String(b.name));});
+  var td=ls.filter(function(l){return bookedOn(l)===today;});
+  return {team:t.name,leader:true,dispatchers:per,loads:lp.length,today_count:td.length,today:td.map(function(l){return {ref:l.ref,origin:l.origin,dest:l.dest,rate:l.rate,driver:nm(getDrv(l.driverId)),dispatcher:nm(getEmp(l.dispatcherId))};})};
+}
+function pMyTeam(){
+  var t=myTeam();if(!t)return head('My team','')+'<section class="panel"><div class="empty">You are not in a dispatch team.</div></section>';
+  loadTeamStats(false);
+  return teamDash(t,amLeader()?'leader':'member',teamStats.data);
+}
+function pTeams(){
+  var list=teamsList(),off=session.role==='admin'||session.role==='accountant';
+  if(!list.length)return head('Teams','Dispatch teams')+'<section class="panel"><div class="empty">No dispatch teams yet.'+(off?' Make them on the Team page (Dispatch teams).':'')+'</div></section>';
+  var t=getTeam(ui.tmTeam)||list[0];ui.tmTeam=t.id;
+  var pick='<div class="toolbar" style="border:0;padding-bottom:0"><label class="field" style="grid-template-columns:auto minmax(0,260px);align-items:center;gap:10px;margin:0"><span>Team</span><select id="tmTeamSel">'+list.map(function(x){return '<option value="'+esc(x.id)+'"'+(x.id===t.id?' selected':'')+'>'+esc(x.name)+' · leader '+esc(nm(getEmp(x.leaderId)))+'</option>';}).join('')+'</select></label></div>';
+  return teamDash(t,'office',officeTeamStats(t,tmRange()),pick);
+}
+function teamDash(t,mode,S,pick){
+  var lead=mode!=='member',r=tmRange(),ds=teamDrivers(t);
+  var opts=[['This Week','This week'],['This Month','This month'],['Last Month','Last month']];
+  var bar='<div class="toolbar"><label class="field" style="grid-template-columns:auto minmax(0,200px);align-items:center;gap:10px;margin:0"><span>Period</span><select id="tmP">'+opts.map(function(o){return '<option value="'+o[0]+'"'+(r.p===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+(r.p==='Month'?'<option value="Month" selected>Month</option>':'')+'</select></label>'+
+    '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600">Month '+ymSelect('tmYm',r.p==='Month'?ui.tmYm:'',' aria-label="Dispatch month"','Choose a month')+'</label></div>';
+  var rank=(S&&S.dispatchers)||[],top=rank[0];
+  var tiles='<div class="stats">'+
+    statTile('Team drivers',String(ds.length),ds.filter(awaitingDisp).length?ds.filter(awaitingDisp).length+' waiting for a dispatcher':'in '+t.name)+
+    (lead?statTile('Team loads',S?String(S.loads||0):'…',r.label)+statTile('Booked today',S?String(S.today_count||0):'…','by the team, '+fmtD(coToday())):'')+
+    statTile('Top gross dispatcher',top&&Number(top.gross)>0?esc(top.name):'—',top&&Number(top.gross)>0?money(Number(top.gross))+' · '+plural(Number(top.loads)||0,'load'):'no loads in this period')+'</div>';
+  var err=mode!=='office'&&teamStats.err?'<div class="pad small" style="color:var(--warn)">Team numbers are not available yet'+(/function|does not exist|schema/i.test(teamStats.err)?' (the admin needs to run migration_2026_11h_dispatch_teams.sql)':'')+'.</div>':'';
+  var rankTbl='<section class="panel"><header><div><h2>Top dispatchers · '+esc(t.name)+'</h2><div class="muted small">Gross = load rates of the loads in '+esc(r.label)+' (by drop-off day).</div></div></header>'+
+    (S?(rank.length?'<div class="tablewrap"><table><thead><tr><th>#</th><th>Dispatcher</th><th class="num">Loads</th><th class="num">Gross</th></tr></thead><tbody>'+rank.map(function(x,i){
+      return '<tr><td>'+(i+1)+'</td><td><b>'+esc(x.name||'')+'</b>'+(x.emp===t.leaderId?' <span class="pill p-good">Leader</span>':'')+(mode!=='office'&&x.emp===session.empId?' <span class="muted small">(you)</span>':'')+'</td><td class="num">'+(Number(x.loads)||0)+'</td><td class="num">'+money(Number(x.gross)||0)+'</td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">No dispatchers in this team.</div>'):'<div class="pad muted">Loading…</div>')+'</section>';
+  var today=lead?'<section class="panel"><header><div><h2>Booked today</h2><div class="muted small">Loads the team booked on '+esc(fmtD(coToday()))+'.</div></div></header>'+
+    (S?((S.today||[]).length?'<div class="tablewrap"><table><thead><tr><th>Load</th><th>Driver</th><th>Dispatcher</th><th>Route</th><th class="num">Rate</th></tr></thead><tbody>'+(S.today||[]).map(function(x){
+      return '<tr><td><span class="mono">'+esc(x.ref||'')+'</span></td><td>'+esc(x.driver||'')+'</td><td>'+esc(x.dispatcher||'')+'</td><td>'+esc((x.origin||'')+' to '+(x.dest||''))+'</td><td class="num">'+money(Number(x.rate)||0)+'</td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">No loads booked today yet.</div>'):'<div class="pad muted">Loading…</div>')+'</section>':'';
+  var mem=teamIds(t);
+  var drows=ds.slice().sort(function(a,b){return (awaitingDisp(b)?1:0)-(awaitingDisp(a)?1:0)||String(a.name).localeCompare(String(b.name));}).map(function(d){
+    var nInv=db.invoices.filter(function(i){return i.driverId===d.id;}).length;
+    var dsp=lead?'<select data-tm-assign="'+esc(d.id)+'" aria-label="Dispatcher for '+esc(d.name)+'"><option value="">Choose dispatcher</option>'+mem.map(function(id){var e=getEmp(id);return '<option value="'+esc(id)+'"'+(d.dispatcherId===id?' selected':'')+'>'+esc(e?e.name:id)+'</option>';}).join('')+(d.dispatcherId&&mem.indexOf(d.dispatcherId)<0?'<option value="'+esc(d.dispatcherId)+'" selected>'+esc(nm(getEmp(d.dispatcherId)))+' (other team)</option>':'')+'</select>':
+      (d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):'<span class="pill p-overdue">Waiting</span>');
+    return '<tr'+(awaitingDisp(d)?' style="background:var(--warn-soft)"':'')+'><td><b>'+esc(d.name)+'</b><div class="muted small">'+esc(d.carrier||'')+(d.mc?' · '+esc(d.mc):'')+'</div></td><td>'+dsp+'</td><td>'+stPill(drvStatus(d))+activeNote(d)+'</td>'+
+      '<td><div class="rowact"><button class="btn sm" type="button" data-action="driver-info" data-id="'+esc(d.id)+'">Details</button><button class="btn sm" type="button" data-action="chat-open" data-id="'+esc(d.id)+'">Chat</button><button class="btn sm" type="button" data-action="tm-invoices" data-id="'+esc(d.id)+'">Invoices ('+nInv+')</button></div></td></tr>';}).join('');
+  var drvTbl='<section class="panel"><header><div><h2>Team drivers</h2><div class="muted small">'+(lead?'Choose a dispatcher from your team for each driver. Drivers waiting for a dispatcher are at the top.':'All drivers of '+esc(t.name)+'.')+'</div></div></header>'+
+    (drows?'<div class="tablewrap"><table><thead><tr><th>Driver</th><th>Dispatcher</th><th>Status</th><th></th></tr></thead><tbody>'+drows+'</tbody></table></div>':'<div class="empty">No drivers in this team yet. '+(mode==='office'?'Put drivers in '+esc(t.name)+' from the driver form (Dispatch team).':'The admin or accountant puts drivers in the team.')+'</div>')+'</section>';
+  return head(mode==='office'?'Teams':t.name,(mode==='office'?t.name+' · leader '+nm(getEmp(t.leaderId)):(lead?'Team leader':'Team member'))+' · '+plural(mem.length,'dispatcher'),'')+
+    '<section class="panel">'+(pick||'')+bar+tiles+err+'</section>'+drvTbl;
+}
+function teamInvoices(id){
+  var d=getDrv(id);if(!d)return;
+  var list=db.invoices.filter(function(i){return i.driverId===id;}).sort(function(a,b){return String(b.issued).localeCompare(String(a.issued));});
+  openModal(sheetHead('Invoices · '+(d.name||''))+
+    (list.length?'<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Issued</th><th>Due</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>'+list.map(function(i){
+      return '<tr><td><b>'+esc(i.no)+'</b></td><td>'+esc(fmtD(i.issued))+'</td><td>'+esc(fmtD(i.due))+'</td><td class="num">'+money(invTotal(i))+'</td><td>'+pill(invStatus(i))+'</td><td><button class="btn sm" type="button" data-action="view-invoice" data-id="'+esc(i.id)+'">Open</button></td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">No invoices for this driver yet.</div>'),true);
 }
 /* ---------- boot ---------- */
 db=blank();renderLogin('');
