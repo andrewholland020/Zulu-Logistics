@@ -1237,7 +1237,8 @@ function driverInfo(id){
     '<h3 style="margin:6px 0 0">Completed loads</h3>'+(done.length?'<div class="tablewrap"><table style="min-width:520px"><thead><tr><th>Load</th><th>Route</th><th>Delivered</th><th>Status</th></tr></thead><tbody>'+
       done.slice().sort(function(a,b){return String(b.delivery).localeCompare(String(a.delivery));}).map(function(l){return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td>'+fmtD(l.delivery)+'</td><td>'+pill(l.status)+'</td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">No completed loads yet.</div>')+
     '<div class="actions" style="justify-content:flex-end">'+chatBtn(d.id)+docsBtn(d.id)+(session.role==='sales'&&st!=='Dead'?'<button class="btn" type="button" data-action="sales-edit-driver" data-id="'+d.id+'">Edit details</button>':'')+
-      (can('editDrivers')?'<button class="btn primary" type="button" data-action="edit-driver" data-id="'+d.id+'">Review and assign</button>':'')+'</div>',true);
+      (can('editDrivers')?'<button class="btn primary" type="button" data-action="edit-driver" data-id="'+d.id+'">Review and assign</button>':'')+
+      (amLeader()&&d.teamId===myTeam().id&&st!=='Dead'?'<button class="btn primary" type="button" data-action="tl-assign" data-id="'+d.id+'">Review and assign</button>':'')+'</div>',true);
 }
 
 /* add / edit driver (sales agent) */
@@ -1846,6 +1847,7 @@ function chatPeopleLine(t){
   var bits=[];
   if(session.role!=='sales'&&t.sales_name)bits.push('Sales: '+t.sales_name);
   if(session.role!=='dispatcher')bits.push('Dispatcher: '+(t.dispatcher_name||'not assigned'));
+  else if(t.dispatcher_emp!==session.empId)bits.push((myTeam()?myTeam().name+' · ':'')+'Dispatcher: '+(t.dispatcher_name||'not assigned'));
   return bits.length?'<span class="muted small chatppl">'+esc(bits.join(' · '))+'</span>':'';
 }
 function chatEmpOptions(){
@@ -2500,8 +2502,8 @@ function dovReportCsv(){
   toast('Report downloaded');
 }
 function dovTableCsv(){
-  var mine=session.role==='dispatcher',r=drvRange(),dq=String(ui.dovQ||'').trim().toLowerCase();
-  var drvs=db.drivers.filter(function(d){return !isDead(d)&&(!mine||d.dispatcherId===session.empId)&&(!dq||dovMatch(d,dq));});
+  var mine=session.role==='dispatcher',r=drvRange(),dq=String(ui.dovQ||'').trim().toLowerCase(),lt=amLeader()?myTeam():null;
+  var drvs=db.drivers.filter(function(d){return !isDead(d)&&(!mine||d.dispatcherId===session.empId||(lt&&d.teamId===lt.id))&&(!dq||dovMatch(d,dq));});
   var list=drvs.map(function(d){return driverStats(d,r);}).sort(function(a,b){return b.fees-a.fees||b.n-a.n;});
   var rows=[[db.settings.company+' - Driver overview'],['Period',r.label],[],
     ['Driver name','Company name','MC','Phone','Email','Sales agent','Loads','Delivered','Loaded miles','Deadhead miles','Total miles','Load revenue ($)']];
@@ -3220,14 +3222,14 @@ function pOverviewLeader(){
   var overdue=pendAll.filter(function(i){return i.due<TODAY;}).length;
   var act={};tl.forEach(function(l){if(inRange(l.pickup,r)||inRange(l.delivery,r))act[l.driverId]=1;});
   var activeN=Object.keys(act).filter(function(id){return getDrv(id);}).length;
-  var rank=mem.map(function(id){var x=loads.filter(function(l){return l.dispatcherId===id;});return {id:id,n:x.length,gross:sumBy(x,function(l){return l.rate;})};})
+  var rank=mem.map(function(id){var x=loads.filter(function(l){return l.dispatcherId===id;});return {id:id,n:x.length,gross:sumBy(x.filter(isDone),loadFee)};})
     .sort(function(a,b){return b.gross-a.gross||b.n-a.n;});
   var top=rank[0]&&rank[0].gross>0?rank[0]:null;
   var bookedToday=tl.filter(function(l){return bookedOn(l)===coToday();}).length;
   var money_=function(a){return sumBy(a,function(i){return i.total;});};
   var me=getEmp(session.empId);
-  var rankPanel='<section class="panel"><header><div><h2>Top dispatchers · '+esc(t.name)+'</h2><div class="muted small">Gross = load rates of the team\'s loads in '+esc(r.label)+' (by drop-off day).</div></div><button class="btn sm" type="button" data-action="nav" data-page="myteam">Open '+esc(t.name)+'</button></header>'+
-    '<div class="tablewrap"><table><thead><tr><th>#</th><th>Dispatcher</th><th class="num">Booked today</th><th class="num">Loads</th><th class="num">Gross</th></tr></thead><tbody>'+rank.map(function(x,i){
+  var rankPanel='<section class="panel"><header><div><h2>Top dispatchers · '+esc(t.name)+'</h2><div class="muted small">Gross = the dispatcher\'s dispatch fees on loads delivered in '+esc(r.label)+'.</div></div></header>'+
+    '<div class="tablewrap"><table><thead><tr><th>#</th><th>Dispatcher</th><th class="num">Booked today</th><th class="num">Loads</th><th class="num">Dispatch gross</th></tr></thead><tbody>'+rank.map(function(x,i){
       return '<tr><td>'+(i+1)+'</td><td><b>'+esc(nm(getEmp(x.id)))+'</b>'+(x.id===t.leaderId?' <span class="pill p-good">Leader</span>':'')+(x.id===session.empId?' <span class="muted small">(you)</span>':'')+'</td><td class="num">'+tl.filter(function(l){return l.dispatcherId===x.id&&bookedOn(l)===coToday();}).length+'</td><td class="num">'+x.n+'</td><td class="num">'+money(x.gross)+'</td></tr>';}).join('')+'</tbody></table></div></section>';
   var cur=inRange(TODAY,r),mine=db.loads.filter(function(l){return l.dispatcherId===session.empId;});
   var wk=mine.filter(function(l){return (cur&&l.status==='In transit')||inRange(l.pickup,r)||inRange(l.delivery,r);}).sort(function(a,b){return String(a.pickup).localeCompare(String(b.pickup));});
@@ -3241,13 +3243,11 @@ function pOverviewLeader(){
   '<div class="stats">'+
     statTile('Invoices paid',String(paid.length),money(money_(paid))+' · issued in this period and paid')+
     statTile('Pending invoices',String(pendAll.length),money(money_(pendAll))+' unpaid in total · '+plural(pend.length,'invoice')+' issued in this period'+(overdue?' · '+overdue+' overdue':''))+
-    statTile('Top gross dispatcher',top?nm(getEmp(top.id)):'—',top?money(top.gross)+' gross on '+plural(top.n,'load'):'no team loads in this period')+
+    statTile('Top gross dispatcher',top?nm(getEmp(top.id)):'—',top?money(top.gross)+' dispatch gross · '+plural(top.n,'load'):'no delivered team loads in this period')+
     statTile('Booked today',String(bookedToday),'team loads booked on '+fmtD(coToday()))+
   '</div>'+
   todayPanel({loads:tl,disps:mem.map(getEmp).filter(Boolean)})+
-  rankPanel+
-  driverWeek(wk)+
-  '<section class="panel"><header><h2>My loads in this period</h2></header>'+(wk.length?wk.map(loadLine).join(''):'<div class="empty">No loads in this period.</div>')+'</section>';
+  rankPanel;
 }
 function pOverviewDispatcher(){
   if(amLeader())return pOverviewLeader();
@@ -3478,7 +3478,7 @@ function pMyReport(){
     statTile('Dispatch fees',money(ms.fees),yourLoads)+
     statTile('Miles',NUM.format(ms.miles),NUM.format(ms.deadhead)+' deadhead miles')+
   '</div>'+
-  '<section class="panel"><header><h2>'+(custom?'Loads delivered in this range':'Loads delivered this month')+'</h2></header>'+(rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Driver</th><th>Broker</th><th>Pickup</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No deliveries in this '+(custom?'date range':'month')+'.</div>')+'</section></div>'+
+  (amLeader()?'':'<section class="panel"><header><h2>'+(custom?'Loads delivered in this range':'Loads delivered this month')+'</h2></header>'+(rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Driver</th><th>Broker</th><th>Pickup</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No deliveries in this '+(custom?'date range':'month')+'.</div>')+'</section>')+'</div>'+
   ''+mySalaryHtml();
 }
 
@@ -3508,7 +3508,9 @@ function pDriverOv(){
     r.p==='Month'?'':
     '<div class="ovdates"><label>Start date '+dateInput('drvFrom','',r.start,'date','aria-label="Start date"')+'</label><label>End date '+dateInput('drvTo','',r.end,'date','aria-label="End date"')+'</label><button class="btn primary sm" type="button" data-action="drv-apply">Apply Filter</button></div>';
   var controls='<div class="ovbar"><div class="chips">'+['Week','Month','Custom Range'].map(function(p){return '<button class="chip" type="button" data-action="drv-period" data-p="'+p+'" aria-pressed="'+(ui.drvPeriod===p)+'">'+p+'</button>';}).join('')+'</div>'+monthPick('drv',ui.drvPeriod==='Month'?ui.drvMonth:'')+picker+'</div>';
-  var drvs=db.drivers.filter(function(d){return !isDead(d)&&(!mine||d.dispatcherId===session.empId);});
+  var lt=amLeader()?myTeam():null;
+  var drvs=db.drivers.filter(function(d){return !isDead(d)&&(!mine||d.dispatcherId===session.empId||(lt&&d.teamId===lt.id));});
+  if(lt)mine=false;
   var dq=String(ui.dovQ||'').trim().toLowerCase();
   var shown=dq?drvs.filter(function(d){return dovMatch(d,dq);}):drvs;
   var list=shown.map(function(d){return driverStats(d,r);}).sort(function(a,b){return b.fees-a.fees||b.n-a.n;});
@@ -3539,7 +3541,7 @@ function pDriverOv(){
 }
 function driverDetail(id){
   var d=getDrv(id);if(!d)return;
-  if(session.role==='dispatcher'&&d.dispatcherId!==session.empId)return;
+  if(session.role==='dispatcher'&&d.dispatcherId!==session.empId&&!(amLeader()&&d.teamId===myTeam().id))return;
   var r=drvRange(),s=driverStats(d,r);
   var rows=s.act.slice().sort(function(a,b){return String(b.pickup).localeCompare(String(a.pickup));}).map(function(l){
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">'+esc(brokerName(l))+'</span></div></td><td>'+fmtD(l.pickup)+'<div class="muted small">to '+fmtD(l.delivery)+'</div></td><td class="num">'+NUM.format(l.miles)+(l.deadhead?'<div class="muted small">+'+NUM.format(l.deadhead)+' deadhead</div>':'')+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(loadFee(l))+'</td><td>'+pill(l.status)+'</td></tr>';}).join('');
@@ -4036,7 +4038,7 @@ function loadForm(l){
   '<form class="form" data-form="load"><input type="hidden" name="id" value="'+esc(l.id||'')+'">'+
     field('Load number','ref',l.ref,{required:true})+
     field('Status','status',l.status,{type:'select',options:stOpts,disabled:locked})+
-    field('Driver','driverId',l.driverId,{type:'select',options:db.drivers.filter(function(d){return (!isDead(d)||d.id===l.driverId)&&(session.role!=='dispatcher'||d.dispatcherId===session.empId||d.id===l.driverId);}).map(function(d){return [d.id,d.name+' · '+d.carrier+(isDead(d)?' (Dead)':'')];}),disabled:locked})+
+    field('Driver','driverId',l.driverId,{type:'select',options:db.drivers.filter(function(d){return !isDead(d)||d.id===l.driverId;}).map(function(d){return [d.id,d.name+' · '+d.carrier+(isDead(d)?' (Dead)':'')];}),disabled:locked})+
     field('Broker company','brokerName',(getCust(l.customerId)||{}).name||l.brokerName||'',{required:true,list:'brokerList',hint:'Pick an existing broker or type a new company name. A new name is added to Brokers automatically.'})+
     '<datalist id="brokerList">'+db.customers.map(function(c){return '<option value="'+esc(c.name)+'">'+esc(c.contact||'')+'</option>';}).join('')+'</datalist>'+
     '<input type="hidden" name="brokerMc" id="f_brokerMc" value="'+esc(l.brokerMc||(getCust(l.customerId)||{}).mc||'')+'">'+
@@ -5310,6 +5312,7 @@ var actions={
   'sales-more-docs':function(){var box=$('docRows');if(!box)return;var n=box.querySelectorAll('.docrow').length;if(n>=10){toast('Add more from Documents after saving.');return;}box.insertAdjacentHTML('beforeend',docRowHtml(n));},
   'driver-info':function(el){driverInfo(el.dataset.id);},
   'tm-invoices':function(el){teamInvoices(el.dataset.id);},
+  'tl-assign':function(el){leaderAssignForm(el.dataset.id);},
   'tm-remove':function(el){var h=$('tmMembers');if(!h)return;h.value=String(h.value||'').split(',').filter(function(x){return x&&x!==el.dataset.id;}).join(',');teamFormDraw();},
   'team-new':function(){if(session.role==='admin'||session.role==='accountant')teamForm();},
   'team-edit':function(el){if(session.role==='admin'||session.role==='accountant')teamForm(getTeam(el.dataset.id));},
@@ -5927,6 +5930,16 @@ var forms={
     }else if(cur)Object.assign(cur,rec);else{rec.id=uid('c');db.customers.push(rec);}
     persist();closeModal();render();toast('Broker saved');
   },
+  'tlassign':function(f){
+    var d=formData(f),dv=getDrv(d.id),tm=myTeam(),emp=d.emp||'';if(!dv||!tm||!amLeader()||dv.teamId!==tm.id)return;
+    if(emp&&teamIds(tm).indexOf(emp)<0){toast('Choose a dispatcher from your team.');return;}
+    var btn=f.querySelector('[type=submit]');if(btn)btn.disabled=true;
+    sb.rpc('zulu_team_assign',{p_driver:dv.id,p_emp:emp}).then(function(r){
+      if(r.error){if(btn)btn.disabled=false;toast('Could not change the dispatcher: '+r.error.message);return;}
+      dv.dispatcherId=emp;try{var k='drivers|'+dv.id,x=snapshot()[k];if(x)synced[k]=x.sig;}catch(e){}
+      teamStats.key='';closeModal();render();toast(emp?(dv.name+' → '+nm(getEmp(emp))):(dv.name+' is waiting for a dispatcher'));
+    },function(e){if(btn)btn.disabled=false;toast('Could not change the dispatcher: '+((e&&e.message)||'network error'));});
+  },
   'team':function(f){
     if(session.role!=='admin'&&session.role!=='accountant')return;
     var d=formData(f),name=String(d.name||'').trim();if(!name){toast('Enter the team name.');return;}
@@ -6161,7 +6174,7 @@ function myTeam(){return session&&session.role==='dispatcher'?teamOf(session.emp
 function amLeader(){var t=myTeam();return !!t&&t.leaderId===session.empId;}
 function teamDrivers(t){return db.drivers.filter(function(d){return d.teamId===t.id&&!isDead(d);});}
 try{Object.defineProperty(LABELS,'myteam',{get:function(){var t=session&&myTeam();return t?t.name:'My team';},enumerable:true,configurable:true});}catch(e){}
-function rolePages(){var p=ROLES[session.role].pages;return session.role==='dispatcher'&&!myTeam()?p.filter(function(x){return x!=='myteam';}):p;}
+function rolePages(){var p=ROLES[session.role].pages;return session.role==='dispatcher'&&(!myTeam()||amLeader())?p.filter(function(x){return x!=='myteam';}):p;}
 
 /* admin / accountant: Team page section */
 function teamsSection(){
@@ -6238,7 +6251,7 @@ function teamOverviewPanel(r){
   var rank=(S&&S.dispatchers)||[],today={};((S&&S.today)||[]).forEach(function(x){today[x.dispatcher||'']=(today[x.dispatcher||'']||0)+1;});
   var head2='<header><div><h2>'+esc(t.name)+(lead?' · booked today and top dispatchers':' · top dispatchers')+'</h2><div class="muted small">'+
     (lead&&S?'<b style="color:var(--ink);font-size:1rem">'+plural(Number(S.today_count)||0,'load')+' booked today</b> by your team ('+esc(fmtD(coToday()))+'). ':'')+
-    'Gross = load rates of the loads in '+esc(r.label)+' (by drop-off day).</div></div><button class="btn sm" type="button" data-action="nav" data-page="myteam">Open '+esc(t.name)+'</button></header>';
+    'Gross = the dispatcher\'s dispatch fees on loads delivered in '+esc(r.label)+'.</div></div><button class="btn sm" type="button" data-action="nav" data-page="myteam">Open '+esc(t.name)+'</button></header>';
   if(!S)return '<section class="panel">'+head2+'<div class="pad muted">Loading…</div></section>';
   return '<section class="panel">'+head2+(rank.length?'<div class="tablewrap"><table><thead><tr><th>#</th><th>Dispatcher</th>'+(lead?'<th class="num">Booked today</th>':'')+'<th class="num">Loads</th><th class="num">Gross</th></tr></thead><tbody>'+rank.map(function(x,i){
       return '<tr><td>'+(i+1)+'</td><td><b>'+esc(x.name||'')+'</b>'+(x.emp===t.leaderId?' <span class="pill p-good">Leader</span>':'')+(x.emp===session.empId?' <span class="muted small">(you)</span>':'')+'</td>'+(lead?'<td class="num">'+(today[x.name||'']||0)+'</td>':'')+'<td class="num">'+(Number(x.loads)||0)+'</td><td class="num">'+money(Number(x.gross)||0)+'</td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">No dispatchers in this team.</div>')+'</section>';
@@ -6247,7 +6260,7 @@ function officeTeamStats(t,r){
   var mem=teamIds(t),today=coToday();
   var ls=db.loads.filter(function(l){return mem.indexOf(l.dispatcherId)>-1;});
   var lp=ls.filter(function(l){var d=loadDay(l);return d>=r.from&&d<=r.to;});
-  var per=mem.map(function(id){var x=lp.filter(function(l){return l.dispatcherId===id;});return {emp:id,name:nm(getEmp(id)),loads:x.length,gross:x.reduce(function(a,l){return a+(Number(l.rate)||0);},0)};})
+  var per=mem.map(function(id){var x=lp.filter(function(l){return l.dispatcherId===id;});return {emp:id,name:nm(getEmp(id)),loads:x.length,gross:sumBy(x.filter(isDone),loadFee)};})
     .sort(function(a,b){return b.gross-a.gross||b.loads-a.loads||String(a.name).localeCompare(String(b.name));});
   var td=ls.filter(function(l){return bookedOn(l)===today;});
   return {team:t.name,leader:true,dispatchers:per,loads:lp.length,today_count:td.length,today:td.map(function(l){return {ref:l.ref,origin:l.origin,dest:l.dest,rate:l.rate,driver:nm(getDrv(l.driverId)),dispatcher:nm(getEmp(l.dispatcherId))};})};
@@ -6264,6 +6277,14 @@ function pTeams(){
   var pick='<div class="toolbar" style="border:0;padding-bottom:0"><label class="field" style="grid-template-columns:auto minmax(0,260px);align-items:center;gap:10px;margin:0"><span>Team</span><select id="tmTeamSel">'+list.map(function(x){return '<option value="'+esc(x.id)+'"'+(x.id===t.id?' selected':'')+'>'+esc(x.name)+' · leader '+esc(nm(getEmp(x.leaderId)))+'</option>';}).join('')+'</select></label></div>';
   return teamDash(t,'office',officeTeamStats(t,tmRange()),pick);
 }
+/* office: which team has the most gross (load rates of its dispatchers' loads) in the period */
+function topTeamTile(r){
+  var rows=teamsList().map(function(t){var mem=teamIds(t);var ls=db.loads.filter(function(l){return mem.indexOf(l.dispatcherId)>-1&&inRange(loadDay(l),{start:r.from,end:r.to});});
+    return {t:t,n:ls.length,gross:sumBy(ls.filter(isDone),loadFee)};}).sort(function(a,b){return b.gross-a.gross||b.n-a.n;});
+  var top=rows[0]&&rows[0].gross>0?rows[0]:null;
+  var others=rows.slice(1).filter(function(x){return x.gross>0||x.n>0;}).map(function(x){return x.t.name+' '+money(x.gross);}).join(' · ');
+  return statTile('Top gross team',top?top.t.name:'—',top?money(top.gross)+' dispatch gross · '+plural(top.n,'load')+(others?' (next: '+others+')':''):'no delivered team loads in this period');
+}
 function teamDash(t,mode,S,pick){
   var lead=mode!=='member',r=tmRange(),ds=teamDrivers(t);
   var opts=[['This Week','This week'],['This Month','This month'],['Last Month','Last month']];
@@ -6273,14 +6294,20 @@ function teamDash(t,mode,S,pick){
   var tiles='<div class="stats">'+
     statTile('Team drivers',String(ds.length),ds.filter(awaitingDisp).length?ds.filter(awaitingDisp).length+' waiting for a dispatcher':'in '+t.name)+
     (lead?statTile('Team loads',S?String(S.loads||0):'…',r.label)+statTile('Booked today',S?String(S.today_count||0):'…','by the team, '+fmtD(coToday())):'')+
-    statTile('Top gross dispatcher',top&&Number(top.gross)>0?esc(top.name):'—',top&&Number(top.gross)>0?money(Number(top.gross))+' · '+plural(Number(top.loads)||0,'load'):'no loads in this period')+'</div>';
+    (mode==='office'?topTeamTile(r):statTile('Top gross dispatcher',top&&Number(top.gross)>0?esc(top.name):'—',top&&Number(top.gross)>0?money(Number(top.gross))+' dispatch gross · '+plural(Number(top.loads)||0,'load'):'no delivered loads in this period'))+'</div>';
   var err=mode!=='office'&&teamStats.err?'<div class="pad small" style="color:var(--warn)">Team numbers are not available yet'+(/function|does not exist|schema/i.test(teamStats.err)?' (the admin needs to run migration_2026_11h_dispatch_teams.sql)':'')+'.</div>':'';
-  var rankTbl='<section class="panel"><header><div><h2>Top dispatchers · '+esc(t.name)+'</h2><div class="muted small">Gross = load rates of the loads in '+esc(r.label)+' (by drop-off day).</div></div></header>'+
+  var rankTbl='<section class="panel"><header><div><h2>Top dispatchers · '+esc(t.name)+'</h2><div class="muted small">Gross = the dispatcher\'s dispatch fees on loads delivered in '+esc(r.label)+'.</div></div></header>'+
     (S?(rank.length?'<div class="tablewrap"><table><thead><tr><th>#</th><th>Dispatcher</th><th class="num">Loads</th><th class="num">Gross</th></tr></thead><tbody>'+rank.map(function(x,i){
       return '<tr><td>'+(i+1)+'</td><td><b>'+esc(x.name||'')+'</b>'+(x.emp===t.leaderId?' <span class="pill p-good">Leader</span>':'')+(mode!=='office'&&x.emp===session.empId?' <span class="muted small">(you)</span>':'')+'</td><td class="num">'+(Number(x.loads)||0)+'</td><td class="num">'+money(Number(x.gross)||0)+'</td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">No dispatchers in this team.</div>'):'<div class="pad muted">Loading…</div>')+'</section>';
   var today=lead?'<section class="panel"><header><div><h2>Booked today</h2><div class="muted small">Loads the team booked on '+esc(fmtD(coToday()))+'.</div></div></header>'+
     (S?((S.today||[]).length?'<div class="tablewrap"><table><thead><tr><th>Load</th><th>Driver</th><th>Dispatcher</th><th>Route</th><th class="num">Rate</th></tr></thead><tbody>'+(S.today||[]).map(function(x){
       return '<tr><td><span class="mono">'+esc(x.ref||'')+'</span></td><td>'+esc(x.driver||'')+'</td><td>'+esc(x.dispatcher||'')+'</td><td>'+esc((x.origin||'')+' to '+(x.dest||''))+'</td><td class="num">'+money(Number(x.rate)||0)+'</td></tr>';}).join('')+'</tbody></table></div>':'<div class="empty">No loads booked today yet.</div>'):'<div class="pad muted">Loading…</div>')+'</section>':'';
+  var mem=teamIds(t),drvTbl=teamDriversHtml(t,mode);
+  return head(mode==='office'?'Teams':t.name,(mode==='office'?t.name+' · leader '+nm(getEmp(t.leaderId)):(lead?'Team leader':'Team member'))+' · '+plural(mem.length,'dispatcher'),'')+
+    '<section class="panel">'+(pick||'')+bar+tiles+err+'</section>'+drvTbl;
+}
+function teamDriversHtml(t,mode){
+  var lead=mode!=='member',ds=teamDrivers(t);
   var mem=teamIds(t);
   var drows=ds.slice().sort(function(a,b){return (awaitingDisp(b)?1:0)-(awaitingDisp(a)?1:0)||String(a.name).localeCompare(String(b.name));}).map(function(d){
     var nInv=db.invoices.filter(function(i){return i.driverId===d.id;}).length;
@@ -6290,8 +6317,17 @@ function teamDash(t,mode,S,pick){
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="driver-info" data-id="'+esc(d.id)+'">Details</button><button class="btn sm" type="button" data-action="chat-open" data-id="'+esc(d.id)+'">Chat</button><button class="btn sm" type="button" data-action="tm-invoices" data-id="'+esc(d.id)+'">Invoices ('+nInv+')</button></div></td></tr>';}).join('');
   var drvTbl='<section class="panel"><header><div><h2>Team drivers</h2><div class="muted small">'+(lead?'Choose a dispatcher from your team for each driver. Drivers waiting for a dispatcher are at the top.':'All drivers of '+esc(t.name)+'.')+'</div></div></header>'+
     (drows?'<div class="tablewrap"><table><thead><tr><th>Driver</th><th>Dispatcher</th><th>Status</th><th></th></tr></thead><tbody>'+drows+'</tbody></table></div>':'<div class="empty">No drivers in this team yet. '+(mode==='office'?'Put drivers in '+esc(t.name)+' from the driver form (Dispatch team).':'The admin or accountant puts drivers in the team.')+'</div>')+'</section>';
-  return head(mode==='office'?'Teams':t.name,(mode==='office'?t.name+' · leader '+nm(getEmp(t.leaderId)):(lead?'Team leader':'Team member'))+' · '+plural(mem.length,'dispatcher'),'')+
-    '<section class="panel">'+(pick||'')+bar+tiles+err+'</section>'+drvTbl;
+  return drvTbl;
+}
+/* team leader: choose the dispatcher of one of the team's drivers (from the team only) */
+function leaderAssignForm(id){
+  var d=getDrv(id),t=myTeam();if(!d||!t||!amLeader()||d.teamId!==t.id)return;
+  var mem=teamIds(t);
+  openModal(sheetHead('Assign dispatcher · '+(d.name||''))+
+    '<form class="form" data-form="tlassign"><input type="hidden" name="id" value="'+esc(d.id)+'">'+
+    '<div class="muted small" style="grid-column:1/-1">'+esc(d.carrier||'')+(d.mc?' · '+esc(d.mc):'')+' · '+esc(t.name)+'</div>'+
+    field('Dispatcher','emp',mem.indexOf(d.dispatcherId)>-1?d.dispatcherId:'',{type:'select',options:[['','Waiting for a dispatcher']].concat(mem.map(function(x){return [x,nm(getEmp(x))+(x===t.leaderId?' (leader)':'')];})),hint:'Only dispatchers of '+t.name+' are listed.'+(d.dispatcherId&&mem.indexOf(d.dispatcherId)<0?' Now: '+nm(getEmp(d.dispatcherId))+' (other team).':'')})+
+    '<div class="formfoot"><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save</button></div></form>');
 }
 function teamInvoices(id){
   var d=getDrv(id);if(!d)return;
