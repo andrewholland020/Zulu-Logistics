@@ -1093,6 +1093,8 @@ async function loadAll(bg){
   }else{
     /* dispatchers and sales agents cannot read payroll records: get the dispatch month dates */
     try{var dmr=await sb.rpc('zulu_dispatch_months');if(!dmr.error&&dmr.data&&typeof dmr.data==='object')db.dmonths=dmr.data;}catch(e){}
+    /* the employee's own payroll payments (dates and which loads were paid), so My report counts exactly like payroll */
+    try{var mrr=await sb.rpc('zulu_my_payruns');db.myRuns=(!mrr.error&&Array.isArray(mrr.data))?mrr.data:[];}catch(e){db.myRuns=[];}
   }
   if(!ui._dmInit){ui._dmInit=1;var cy0=curYm();ui.ym=cy0;ui.reportYm=cy0;if(ui.drvMonth===TODAY.slice(0,7))ui.drvMonth=cy0;}
   await fetchDocs();
@@ -3499,15 +3501,28 @@ function mySums(test,o){
   return Object.assign(o,{loads:ls,count:ls.length,rev:sumBy(ls,function(l){return l.rate;}),fees:sumBy(ls,loadFee),
     miles:ls.reduce(function(a,l){return a+l.miles;},0),deadhead:ls.reduce(function(a,l){return a+(l.deadhead||0);},0)});
 }
+/* a dispatcher's own loads counted the payroll way in [a,b]: the same loads, dates and fees as the Payroll page and Dispatcher reports */
+function myCom(l){return session.role==='sales'?comState(l,drDocs(session.empId)):drCom(l);}
+function myCounts(l){var c=myCom(l);return c.st==='paid'||c.st==='due';}
+function myFee(l){return comFee(l,myCom(l).date);}
+function myPayLoads(a,b){
+  return db.loads.filter(function(l){if(!isMyLoad(l))return false;var d=myCom(l).date;return d>=a&&d<=b;});
+}
 function pMyReport(){
   var me=getEmp(session.empId),ym=ui.reportYm,yr=ui.reportYear;
   var custom=ui.mrMode==='Custom Range',cFrom=ui.mrFrom||mFrom(curYm()),cTo=ui.mrTo||TODAY;
   var ms=custom?myRange(cFrom,cTo):myMonth(ym),period=custom?fmtD(cFrom)+' to '+fmtD(cTo):dmLabel(ym);
+  var isDisp=true,pa=custom?cFrom:mFrom(ym),pb=custom?cTo:mTo(ym);
+  var pls=myPayLoads(pa,pb),pc=pls.filter(myCounts),pw=pls.filter(function(l){return !myCounts(l)&&isDone(l);});
+  var pGross=sumBy(pc,myFee),pWait=sumBy(pw,myFee);
   var set={};set[TODAY.slice(0,4)]=1;set[yr]=1;
   db.loads.forEach(function(l){if(isMyLoad(l)&&loadDay(l))set[loadDay(l).slice(0,4)]=1;});
   var years=Object.keys(set).sort().reverse();
-  var rows=ms.loads.slice().sort(function(a,b){return loadDay(b).localeCompare(loadDay(a));}).map(function(l){
-    return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(brokerName(l))+'</td><td>'+fmtD(l.pickup)+'<div class="muted small">Drop-off '+fmtD(l.delivery)+'</div></td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(loadFee(l))+'</td></tr>';}).join('');
+  var rows=(isDisp?pls:ms.loads).slice().sort(function(a,b){return loadDay(b).localeCompare(loadDay(a));}).map(function(l){
+    return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(brokerName(l))+'</td><td>'+fmtD(l.pickup)+'<div class="muted small">Drop-off '+fmtD(l.delivery)+'</div></td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+(isDisp?(function(){var c=myCom(l),fv=myFee(l);
+      if(c.st==='paid')return money(fv)+'<div class="muted small">paid in '+esc((c.doc&&c.doc.no)||'payroll')+'</div>';
+      if(c.st==='due')return money(fv)+'<div class="muted small">due in payroll</div>';
+      return '<span class="muted">'+money(fv)+'</span><div class="muted small">'+(c.st==='open'?'not delivered yet':'driver has not paid yet')+', not counted</div>';})():money(loadFee(l)))+'</td></tr>';}).join('');
   var yourLoads=session.role==='sales'?'on your drivers\' loads':'earned on your loads';
   return head('My report',(session.role==='sales'?'Your salary, and loads delivered by the drivers you brought in':'Your salary, and your own loads and revenue')+(me?' · '+me.name:''))+
   '<div class="rsec"><div class="pagehead"><div><h2>'+(custom?'Custom date range':'Month')+'</h2><div class="sub">'+esc(period)+'</div></div>'+
@@ -3517,10 +3532,10 @@ function pMyReport(){
   '<div class="stats">'+
     statTile('Loads delivered',String(ms.count),(custom?'from ':'in ')+period)+
     statTile('Load revenue',money(ms.rev),'total load rates')+
-    statTile('Dispatch fees',money(ms.fees),yourLoads)+
+    (isDisp?statTile('Dispatch gross',money(pGross),'same as payroll · '+plural(pc.length,'load')+' paid by drivers'+(session.role==='sales'?' you signed':'')+(pw.length?' · '+money(pWait)+' waiting for driver payment':'')):statTile('Dispatch fees',money(ms.fees),yourLoads))+
     statTile('Miles',NUM.format(ms.miles),NUM.format(ms.deadhead)+' deadhead miles')+
   '</div>'+
-  (amLeader()?'':'<section class="panel"><header><h2>'+(custom?'Loads delivered in this range':'Loads delivered this month')+'</h2></header>'+(rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Driver</th><th>Broker</th><th>Pickup</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No deliveries in this '+(custom?'date range':'month')+'.</div>')+'</section>')+'</div>'+
+  (amLeader()?'':'<section class="panel"><header><h2>'+(isDisp?(custom?'Your loads in this range':'Your loads this month')+' <span class="muted small">· counted the same way as payroll</span>':(custom?'Loads delivered in this range':'Loads delivered this month'))+'</h2></header>'+(rows?'<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Driver</th><th>Broker</th><th>Pickup</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">No deliveries in this '+(custom?'date range':'month')+'.</div>')+'</section>')+'</div>'+
   ''+mySalaryHtml();
 }
 
@@ -4498,6 +4513,7 @@ function payDocs(empId){
   var out=[];
   db.payslips.forEach(function(p){if(p.empId===empId&&p.ym)out.push({from:mFrom(p.ym),to:mTo(p.ym),ids:Array.isArray(p.comLoadIds)?p.comLoadIds:null,doc:p});});
   (db.payruns||[]).forEach(function(p){if(p.empId===empId&&p.from&&p.to)out.push({from:p.from,to:p.to,ids:Array.isArray(p.comLoadIds)?p.comLoadIds:null,doc:p});});
+  if(!(db.payruns||[]).length)(db.myRuns||[]).forEach(function(p){if(p.empId===empId&&p.from&&p.to)out.push({from:p.from,to:p.to,ids:Array.isArray(p.comLoadIds)?p.comLoadIds:null,doc:p});});
   return out;
 }
 function docAt(docs,d){for(var i=0;i<docs.length;i++){if(docs[i].from<=d&&docs[i].to>=d)return docs[i];}return null;}
@@ -5107,8 +5123,10 @@ function drDocs(dispId){
   if(!drCache||drCache.db!==db||drCache.n!==n)drCache={db:db,n:n,m:{}};
   return drCache.m[dispId]||(drCache.m[dispId]=payDocs(dispId));
 }
-function drCom(l){
-  var docs=drDocs(l.dispatcherId),del=loadDay(l),pd=loadPaidOn(l);
+function drCom(l){return comState(l,drDocs(l.dispatcherId));}
+/* how payroll treats a load for one employee's payments (docs): paid out, due, waiting for the driver, or not delivered */
+function comState(l,docs){
+  var del=loadDay(l),pd=loadPaidOn(l);
   var x=docs.find(function(d){return d.ids&&d.ids.indexOf(l.id)>-1;});
   if(x){var inR=function(d){return !!d&&d>=x.from&&d<=x.to;};return {st:'paid',date:inR(del)?del:(inR(pd)?pd:x.from),doc:x.doc};}
   var old=docAt(docs,String(l.delivery||''));
