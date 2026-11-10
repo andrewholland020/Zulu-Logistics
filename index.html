@@ -3897,10 +3897,23 @@ function expenseForm(e){
 
 /* ---------- loads ---------- */
 var STATUSES=['All','Booked','In transit','Delivered','Invoiced','Paid'];
-function loadRows(){
-  var q=ui.q.trim().toLowerCase();
+/* a team leader sees their team's loads on the Loads page (their own stay editable; the others are view only) */
+function tlLoadMembers(){var t=amLeader()?myTeam():null;return t?teamIds(t):null;}
+function myLoadRow(l){return session.role!=='dispatcher'||l.dispatcherId===session.empId;}
+function tlDispSelect(){
+  var tm=tlLoadMembers();if(!tm)return '';
+  var t=myTeam(),all=loadRows(true),cnt=function(id){return all.filter(function(l){return !id||l.dispatcherId===id;}).length;};
+  var cur=tm.indexOf(ui.tlDisp)>-1?ui.tlDisp:'';
+  return '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600">Dispatcher <select id="tlDisp" aria-label="Show the loads of one team dispatcher" style="text-transform:none;letter-spacing:0;font-weight:400">'+
+    '<option value="">All of '+esc(t.name)+' ('+cnt('')+')</option>'+tm.map(function(id){return '<option value="'+esc(id)+'"'+(cur===id?' selected':'')+'>'+esc(nm(getEmp(id)))+(id===session.empId?' (you)':'')+' ('+cnt(id)+')</option>';}).join('')+'</select></label>';
+}
+function loadRows(skipDisp){
+  var q=ui.q.trim().toLowerCase(),tm=tlLoadMembers(),pick=tm&&ui.tlDisp&&tm.indexOf(ui.tlDisp)>-1?ui.tlDisp:'';
   return db.loads.filter(function(l){
-    if(session&&session.role==='dispatcher'&&l.dispatcherId!==session.empId)return false;
+    if(session&&session.role==='dispatcher'){
+      if(tm){if(tm.indexOf(l.dispatcherId)<0)return false;if(!skipDisp&&pick&&l.dispatcherId!==pick)return false;}
+      else if(l.dispatcherId!==session.empId)return false;
+    }
     if(ui.status!=='All'&&l.status!==ui.status)return false;
     if(ui.loadsYm&&!inRange(loadDay(l),monthLbl(ui.loadsYm)))return false;
     if(session.role!=='dispatcher'&&ui.dispQ.trim()&&nm(getEmp(l.dispatcherId)).toLowerCase().indexOf(ui.dispQ.trim().toLowerCase())<0)return false;
@@ -3935,17 +3948,18 @@ function loadsTableHtml(){
       '<td class="num">'+NUM.format(l.miles)+(l.deadhead?'<div class="muted small">+'+NUM.format(l.deadhead)+' deadhead</div>':'')+'</td>'+
       '<td class="num">'+money(l.rate)+'</td>'+
       '<td><div class="stack" style="gap:4px;justify-items:start">'+pill(l.status)+paperworkCell(l)+'</div></td>'+
-      (edit?'<td><div class="rowact">'+
+      (edit?'<td><div class="rowact">'+(!myLoadRow(l)?'<span class="muted small">Team load · view only</span>':
         (l.status==='In transit'?'<button class="btn sm" type="button" data-action="deliver-load" data-id="'+l.id+'">Mark delivered</button>':'')+
         (l.status==='Booked'?'<button class="btn sm" type="button" data-action="start-load" data-id="'+l.id+'">Start trip</button>':'')+
         '<button class="btn sm" type="button" data-action="edit-load" data-id="'+l.id+'">'+(locked?'View':'Edit')+'</button>'+
-        (canDelLoad(l)?'<button class="btn sm danger" type="button" data-action="delete-load" data-id="'+l.id+'">Delete</button>':'')+'</div></td>':'')+
+        (canDelLoad(l)?'<button class="btn sm danger" type="button" data-action="delete-load" data-id="'+l.id+'">Delete</button>':''))+'</div></td>':'')+
     '</tr>';}).join('')+'</tbody></table></div>';
 }
 function pLoads(){
   return head('Loads','Every load, who hauled it and who it is billed to',can('editLoads')?'<button class="btn primary" type="button" data-action="new-load">Add load</button>':'')+
   '<section class="panel"><div class="toolbar"><div class="chips" id="statusChips">'+statusChips()+'</div>'+
   '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600">Month '+ymSelect('loadsYm',ui.loadsYm||'',' aria-label="Dispatch month"','All months')+'</label>'+
+  tlDispSelect()+
   '<input id="loadSearch" type="search" placeholder="Search load, city, driver" value="'+esc(ui.q)+'" aria-label="Search loads">'+
   (session.role!=='dispatcher'?'<input id="dispFilter" type="search" list="dispList" placeholder="Filter by dispatcher name" value="'+esc(ui.dispQ)+'" aria-label="Filter loads by dispatcher"><datalist id="dispList">'+staff('Dispatcher').map(function(e){return '<option value="'+esc(e.name)+'"></option>';}).join('')+'</datalist><button class="btn sm" type="button" data-action="clear-disp">Clear dispatcher</button>':'')+'</div>'+
   '<div id="loadsBody">'+loadsTableHtml()+'</div></section>';
@@ -5462,13 +5476,13 @@ var actions={
   'edit-expense':function(el){if(!can('expenses'))return;var e=db.expenses.find(function(x){return x.id===el.dataset.id;});if(e)expenseForm(e);},
   'delete-expense':function(el){if(!can('expenses'))return;db.expenses=db.expenses.filter(function(x){return x.id!==el.dataset.id;});persist();closeModal();render();toast('Expense deleted');},
   'new-load':function(){loadForm();},
-  'edit-load':function(el){loadForm(getLoad(el.dataset.id));},
-  'start-load':function(el){var l=getLoad(el.dataset.id);l.status='In transit';persist();render();toast(l.ref+' is in transit');},
+  'edit-load':function(el){var l0=getLoad(el.dataset.id);if(!l0||!myLoadRow(l0))return;loadForm(l0);},
+  'start-load':function(el){var l=getLoad(el.dataset.id);if(!l||!myLoadRow(l))return;l.status='In transit';persist();render();toast(l.ref+' is in transit');},
   'mode-set':function(el){var m=el.dataset.m==='dark'?'dark':'light';if((isDarkNow()?'dark':'light')===m)return;try{localStorage.setItem('zuluMode',m);}catch(e){}applyLook();render();},
   'mode-toggle':function(){try{localStorage.setItem('zuluMode',isDarkNow()?'light':'dark');}catch(e){}applyLook();render();},
   'look-mode':function(el){try{localStorage.setItem('zuluMode',el.dataset.m);}catch(e){}applyLook();render();},
   'look-theme':function(el){if(session.role!=='admin')return;db.settings.theme=el.dataset.t;applyLook();persist();render();toast('Theme saved for everyone: '+(THEMES.filter(function(x){return x[0]===el.dataset.t;})[0]||['',''])[1]);},
-  'deliver-load':function(el){var l=getLoad(el.dataset.id);l.status='Delivered';l.deliveredOn=coToday();l.deliveredBy=session.name||session.email;persist();render();toast(l.ref+' delivered. It is ready to invoice.');},
+  'deliver-load':function(el){var l=getLoad(el.dataset.id);if(!l||!myLoadRow(l))return;l.status='Delivered';l.deliveredOn=coToday();l.deliveredBy=session.name||session.email;persist();render();toast(l.ref+' delivered. It is ready to invoice.');},
   'delete-load':function(el){
     var l=getLoad(el.dataset.id);if(!l||!canDelLoad(l))return;
     var locked=l.status==='Invoiced'||l.status==='Paid';
@@ -6034,6 +6048,7 @@ document.addEventListener('change',function(e){
     },function(e){toast('Could not change the dispatcher: '+((e&&e.message)||'network error'));render();});
     return;
   }
+  if(t.id==='tlDisp'){ui.tlDisp=t.value;render();return;}
   if(t.id==='slipYm'){ui.slipYm=okMonth(t.value)?t.value:'';var sl=$('slipList');if(sl)sl.innerHTML=slipListHtml();else render();return;}
   if(t.id==='loadsYm'){ui.loadsYm=okMonth(t.value)?t.value:'';var lb=$('loadsBody');if(lb)lb.innerHTML=loadsTableHtml();else render();return;}
   if(t.id==='drvYm'){ui.drvYm=okMonth(t.value)?t.value:'';render();return;}
