@@ -5166,7 +5166,7 @@ function pDispReports(){
   '<div class="stats" id="drTotals">'+
     statTile('Total loads',String(tot.n),'of all '+plural(disp.length,'dispatcher')+(filtered?(ui.drBy==='pick'?', picked up':', counted')+' in this period':', all time'))+
     statTile('Dispatch gross',money(tot.fees),'on '+plural(tot.dn,'load')+' counted, same as payroll'+(tot.n-tot.dn?' · '+(tot.n-tot.dn)+' not counted yet':''))+
-    statTile('Discounts',drDisc(r2(tot.paid-tot.full)),'driver paid '+money(tot.paid)+' of '+money(tot.full)+' full fee')+
+    statTile('Discounts',(function(v){return Math.abs(v)<0.005?'$0.00':(v<0?'−'+money(-v):'+'+money(v));})(r2(tot.paid-tot.full)),'driver paid '+money(tot.paid)+' of '+money(tot.full)+' full fee')+
     statTile('Drivers',String(Object.keys(tot.drv).length),'with a load'+(filtered?' in this period':''))+
     statTile('Average fee per load',tot.dn?money(r2(tot.fees/tot.dn)):'—','per counted load'+(filtered?' in this period':', all time'))+
   '</div>'+
