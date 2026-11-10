@@ -3704,6 +3704,20 @@ function moInvMoved(inv){
   return pm>im&&!!pr&&pr<inv.paidOn;
 }
 function moInvMonth(inv){return moInvMoved(inv)?ymOfDate(inv.paidOn):ymOfDate(invDay(inv));}
+/* October 2026 only: a separate "Tax / discounts" box showing what the drivers did not pay of the full dispatch fee
+   (Dispatcher report gross − dispatch fee received), so the report agrees with the Dispatcher report ($9,142.15).
+   It is shown for information; profit stays on the fee actually received. */
+var MO_TAX_YMS=['2026-10'];
+function drGrossRange(a,b){
+  return sumBy(db.loads.filter(function(l){if(!drCounts(l))return false;var d=drCom(l).date;return d>=a&&d<=b;}),function(l){return comFee(l,drCom(l).date);});
+}
+function moTax(per,c){
+  if(per.mode!=='month'||MO_TAX_YMS.indexOf(per.ym)<0)return null;
+  var dr=drGrossRange(per.from,per.to),usd=r2(dr-c.incUsd);
+  if(Math.abs(usd)<0.01)return null;
+  var rate=fxFor(per.ym);
+  return {dr:dr,usd:usd,rs:rate?Math.round(usd*rate):null};
+}
 function moCalc(per){
   var inR=function(d){return d&&d>=per.from&&d<=per.to;},noRate={};
   /* dispatch fee: invoices issued in the period that the driver has paid, whenever they paid.
@@ -3784,6 +3798,7 @@ function monthlyOverviewHtml(){
   var pr=c.profitRs;
   var tiles='<div class="tiles">'+
     tile('Total dispatch fee',rs(c.incRs),money(c.incUsd)+' · '+plural(c.paid.length,'paid invoice'))+
+    (function(){var tx=moTax(per,c);return tx?tile('Tax / discounts',tx.rs!=null?rs(tx.rs):money(tx.usd),money(tx.usd)+' · Dispatcher report '+money(tx.dr)+' − received '+money(c.incUsd)):'';})()+
     tile('Monthly expenses',rs(c.exRs),money(c.exUsd)+' · '+c.ex.length+(c.ex.length===1?' entry':' entries'))+
     tile('Total payslips issued',rs(c.salRs),plural(c.sal.length,'payslip')+' · amount issued')+
     tile(pr<0?'Loss':'Profit',rs(Math.abs(pr)),'dispatch fee − expenses − salaries',pr<0?'bad':'good')+'</div>';
@@ -3828,6 +3843,7 @@ function moReport(){
       '<div class="muted small">'+(c.final?'Final':'Estimate')+' · printed '+esc(fmtD(TODAY))+'</div></div></div>'+
     '<table class="sumtbl"><tbody>'+
       '<tr><td>Total dispatch fees</td><td class="num"><b>'+rs(c.incRs)+'</b></td><td class="num muted">'+money(c.incUsd)+'</td></tr>'+
+      (function(){var tx=moTax(per,c);return tx?'<tr><td>Tax / discounts <span class="muted small">(Dispatcher report '+money(tx.dr)+')</span></td><td class="num"><b>'+(tx.rs!=null?rs(tx.rs):'—')+'</b></td><td class="num muted">'+money(tx.usd)+'</td></tr>':'';})()+
       '<tr><td>Total payslips issued</td><td class="num"><b>'+rs(c.salRs)+'</b></td><td class="num muted">'+plural(c.sal.length,'payslip')+'</td></tr>'+
       '<tr><td>Monthly expenses</td><td class="num"><b>'+rs(c.exRs)+'</b></td><td class="num muted">'+c.ex.length+(c.ex.length===1?' entry':' entries')+'</td></tr></tbody></table>'+
     (c.noRate.length?'<p class="small" style="margin:0">Exchange rate missing for '+esc(c.noRate.map(ymLabel).join(', '))+': those dispatch fees are not in the rupee total.</p>':'')+
@@ -5106,6 +5122,10 @@ function drCounts(l){var c=drCom(l);return c.st==='paid'||c.st==='due';}
 function drDay(l){return ui.drBy==='pick'?String(l.pickup||''):drCom(l).date;}
 function drFeeOf(l){return comFee(l,drCom(l).date);}
 function drGross(list){return sumBy(list.filter(drCounts),drFeeOf);}
+/* the same counted loads at the full fee (rate x driver %) and at what the driver actually paid (invoice fee + adjustment) */
+function drDisc(v){return Math.abs(v)<0.005?'<span class="muted">—</span>':'<span style="color:var(--bad,#c0392b)">'+(v<0?'−'+money(-v):'+'+money(v))+'</span>';}
+function drFull(list){return sumBy(list.filter(drCounts),loadFee);}
+function drPaid(list){return sumBy(list.filter(drCounts),netFee);}
 function drLoads(dispId){
   return db.loads.filter(function(l){
     if(l.dispatcherId!==dispId)return false;
@@ -5119,10 +5139,10 @@ function pDispReports(){
   var filtered=!!(ui.drFrom||ui.drTo);
   var tot={all:0,n:0,dn:0,fees:0,drv:{}};
   var rows=disp.map(function(e){
-    var all=db.loads.filter(function(l){return l.dispatcherId===e.id;}),inP=drLoads(e.id),drv={},dn=inP.filter(drCounts).length,g=drGross(inP);
+    var all=db.loads.filter(function(l){return l.dispatcherId===e.id;}),inP=drLoads(e.id),drv={},dn=inP.filter(drCounts).length,g=drGross(inP),fu=drFull(inP),pa=drPaid(inP);
     inP.forEach(function(l){drv[l.driverId]=1;tot.drv[l.driverId]=1;});
-    tot.all+=all.length;tot.n+=inP.length;tot.dn+=dn;tot.fees+=g;
-    return '<tr><td><b>'+esc(e.name)+'</b></td><td class="num">'+all.length+'</td><td class="num"><b>'+inP.length+'</b></td><td class="num">'+dn+'</td><td class="num">'+Object.keys(drv).length+'</td><td class="num">'+money(g)+'</td>'+
+    tot.all+=all.length;tot.n+=inP.length;tot.dn+=dn;tot.fees+=g;tot.full=(tot.full||0)+fu;tot.paid=(tot.paid||0)+pa;
+    return '<tr><td><b>'+esc(e.name)+'</b></td><td class="num">'+all.length+'</td><td class="num"><b>'+inP.length+'</b></td><td class="num">'+dn+'</td><td class="num">'+Object.keys(drv).length+'</td><td class="num">'+money(fu)+'</td><td class="num">'+drDisc(r2(pa-fu))+'</td><td class="num">'+money(pa)+'</td><td class="num"><b>'+money(g)+'</b></td>'+
       '<td><div class="rowact"><button class="btn sm'+(ui.drDisp===e.id?' primary':'')+'" type="button" data-action="dr-select" data-id="'+e.id+'">View report</button></div></td></tr>';}).join('');
   var sel=getEmp(ui.drDisp),detail='';
   if(sel){
@@ -5133,19 +5153,20 @@ function pDispReports(){
       return '<div style="margin-top:14px"><b>'+esc(nm(d))+'</b> <span class="muted small">'+esc(d?d.carrier:'')+' · '+plural(list.length,'load')+' · '+money(drGross(list))+' dispatch gross</span>'+
         '<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Route</th><th>Pickup</th><th>Drop-off</th><th>Status</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
         list.map(function(l){return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td>'+fmtD(l.pickup)+'</td><td>'+fmtD(l.delivery)+(l.deliveredOn&&l.deliveredOn!==l.delivery?'<div class="muted small">Marked delivered '+fmtD(l.deliveredOn)+'</div>':'')+'</td><td>'+pill(l.status)+'</td><td class="num">'+(function(){var c=drCom(l);
-          var fv=drFeeOf(l),diff=Math.abs(fv-loadFee(l))>0.004?'<div class="muted small">'+money(loadFee(l))+' at '+esc(String((getDrv(l.driverId)||{}).feePct||0))+'% · as paid by driver</div>':'';
+          var fv=drFeeOf(l),nf=netFee(l),diff=Math.abs(nf-loadFee(l))>0.004?'<div class="small" style="color:var(--warn)">full '+money(loadFee(l))+' · driver paid '+money(nf)+'</div>':'';
           if(c.st==='paid')return money(fv)+diff+'<div class="muted small">paid in '+esc(c.doc.no||'payroll')+'</div>';
           if(c.st==='due')return money(fv)+diff+'<div class="muted small">due in payroll'+(c.date!==loadDay(l)?' · '+fmtD(c.date):'')+'</div>';
           return '<span class="muted">'+money(fv)+'</span><div class="muted small">'+(c.st==='open'?'not delivered yet':'driver has not paid yet')+', not counted</div>';})()+'</td></tr>';}).join('')+
         '</tbody></table></div></div>';}).join('');
     detail='<section class="panel"><header><div><h2>'+esc(sel.name)+'</h2><div class="muted small">'+plural(ls.length,'load')+(filtered?(ui.drBy==='pick'?' picked up':' counted')+' in this period':' in total')+' · '+plural(Object.keys(by).length,'driver')+' · '+plural(ls.filter(drCounts).length,'load')+' counted · '+money(drGross(ls))+' dispatch gross</div></div></header><div class="pad">'+(blocks||'<div class="empty">No loads for this dispatcher in this period.</div>')+'</div></section>';
   }
-  tot.fees=r2(tot.fees);
-  var totRow='<tr class="total"><td>All dispatchers</td><td class="num">'+tot.all+'</td><td class="num">'+tot.n+'</td><td class="num">'+tot.dn+'</td><td class="num">'+Object.keys(tot.drv).length+'</td><td class="num">'+money(tot.fees)+'</td><td></td></tr>';
+  tot.fees=r2(tot.fees);tot.full=r2(tot.full||0);tot.paid=r2(tot.paid||0);
+  var totRow='<tr class="total"><td>All dispatchers</td><td class="num">'+tot.all+'</td><td class="num">'+tot.n+'</td><td class="num">'+tot.dn+'</td><td class="num">'+Object.keys(tot.drv).length+'</td><td class="num">'+money(tot.full)+'</td><td class="num">'+drDisc(r2(tot.paid-tot.full))+'</td><td class="num">'+money(tot.paid)+'</td><td class="num">'+money(tot.fees)+'</td><td></td></tr>';
   return head('Dispatcher reports','Each dispatcher\'s loads, dispatch gross and the drivers they booked them for')+
   '<div class="stats" id="drTotals">'+
     statTile('Total loads',String(tot.n),'of all '+plural(disp.length,'dispatcher')+(filtered?(ui.drBy==='pick'?', picked up':', counted')+' in this period':', all time'))+
     statTile('Dispatch gross',money(tot.fees),'on '+plural(tot.dn,'load')+' counted, same as payroll'+(tot.n-tot.dn?' · '+(tot.n-tot.dn)+' not counted yet':''))+
+    statTile('Discounts',drDisc(r2(tot.paid-tot.full)),'driver paid '+money(tot.paid)+' of '+money(tot.full)+' full fee')+
     statTile('Drivers',String(Object.keys(tot.drv).length),'with a load'+(filtered?' in this period':''))+
     statTile('Average fee per load',tot.dn?money(r2(tot.fees/tot.dn)):'—','per counted load'+(filtered?' in this period':', all time'))+
   '</div>'+
@@ -5153,8 +5174,8 @@ function pDispReports(){
     '<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>From</span>'+dateInput('drFrom','',ui.drFrom,'date')+'</label>'+
     '<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>to</span>'+dateInput('drTo','',ui.drTo,'date')+'</label>'+
     '<button class="btn primary sm" type="button" data-action="dr-apply">Apply Filter</button><button class="btn sm" type="button" data-action="dr-reset">Reset</button><span class="muted small">Leave both dates empty to count all time.</span></div>'+
-    '<p class="muted small" style="margin:0 0 10px">Dispatch gross is counted the same way as payroll commission: a load counts once the driver has paid it, in the period payroll counts it. From November 2026 the fee is what the driver paid: the fee on the invoice with its adjustment (before that, load rate × the driver\'s dispatch fee %) (a load already paid out stays in that payment\'s period). Delivered loads the driver has not paid yet are listed but not counted.</p>'+
-    (rows?'<div class="tablewrap"><table><thead><tr><th>Dispatcher</th><th class="num">Loads (all time)</th><th class="num">Loads'+(filtered?' (period)':'')+'</th><th class="num">Counted</th><th class="num">Drivers</th><th class="num">Dispatch gross</th><th></th></tr></thead><tbody>'+rows+totRow+'</tbody></table></div>':'<div class="empty">No dispatchers yet. Add them on the Team page.</div>')+'</section>'+detail;
+    '<p class="muted small" style="margin:0 0 10px">Dispatch gross is counted the same way as payroll commission: a load counts once the driver has paid it, in the period payroll counts it. From November 2026 the fee is what the driver paid: the fee on the invoice with its adjustment (before that, load rate × the driver\'s dispatch fee %) (a load already paid out stays in that payment\'s period). Delivered loads the driver has not paid yet are listed but not counted. Full fee = load rate × the driver\'s %; Discount = what the driver did not pay of it (invoice adjustments and changed fees); Driver paid = what came in.</p>'+
+    (rows?'<div class="tablewrap"><table><thead><tr><th>Dispatcher</th><th class="num">Loads (all time)</th><th class="num">Loads'+(filtered?' (period)':'')+'</th><th class="num">Counted</th><th class="num">Drivers</th><th class="num">Full fee</th><th class="num">Discount</th><th class="num">Driver paid</th><th class="num">Dispatch gross</th><th></th></tr></thead><tbody>'+rows+totRow+'</tbody></table></div>':'<div class="empty">No dispatchers yet. Add them on the Team page.</div>')+'</section>'+detail;
 }
 
 /* ---------- my account ---------- */
