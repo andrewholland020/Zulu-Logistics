@@ -279,6 +279,7 @@ h2{font-size:1.2rem;line-height:1.3}
 .stat{padding:14px 16px;display:grid;gap:2px;border-left:1px solid var(--line);min-width:0}
 .stat:first-child{border-left:0}
 .stats.five{grid-template-columns:repeat(5,minmax(0,1fr))}
+.stats.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .p-noresp{background:#efe4f7;color:#6a2c91}
 .stat .k{font-size:.74rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .stat .v{font-family:var(--font-display);font-size:1.7rem;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
@@ -1368,12 +1369,10 @@ function pSalesReports(){
   }
   return head('Sales reports','Drivers each sales agent brought in, and how they are doing · '+r.label)+
   '<div class="ovbar"><div class="chips">'+chips+'</div>'+monthPick('sr',r.p==='Month'?ui.srYm:'')+custom+'<label class="field" style="grid-template-columns:auto 220px;align-items:center;gap:10px;margin-left:auto"><span>Sales agent</span><select id="srAgentSel" aria-label="Filter by sales agent"><option value="">All sales agents</option>'+agents.map(function(a){return '<option value="'+esc(a.id)+'"'+(sel===a.id?' selected':'')+'>'+esc(a.name)+'</option>';}).join('')+'</select></label></div>'+
-  '<div class="stats five" id="srTotals">'+
+  '<div class="stats three" id="srTotals">'+
     statTile('Drivers added',String(T.added),'in '+r.label)+
     statTile('Active drivers',String(T.Active),T.activated+' became active in this period')+
     statTile('In-Loop drivers',String(T['In Loop']),'no completed load yet')+
-    statTile('Loads done',String(T.loads),'in '+r.label)+
-    statTile('Dispatch fees',money(T.fees),'on those loads')+
   '</div>'+
   '<section class="panel">'+(agents.length?'<div class="pad muted small" style="padding-bottom:0">• counts only what happened in '+esc(r.label)+'. The other columns show each driver\'s status today.</div><div class="tablewrap"><table style="min-width:1000px"><thead><tr><th>Sales agent</th><th class="num">Drivers</th><th class="num">Added •</th><th class="num">Active</th><th class="num">In Loop</th><th class="num">Became active •</th><th class="num">Loads done •</th><th class="num">Fees •</th><th></th></tr></thead><tbody>'+rows+
     (shown.length>1?'<tr class="total"><td>All sales agents</td><td class="num">'+T.total+'</td><td class="num">'+T.added+'</td><td class="num">'+T.Active+'</td><td class="num">'+T['In Loop']+'</td><td class="num">'+T.activated+'</td><td class="num">'+T.loads+'</td><td class="num">'+money(T.fees)+'</td><td></td></tr>':'')+
@@ -3520,7 +3519,7 @@ function pMyReport(){
   var years=Object.keys(set).sort().reverse();
   var rows=(isDisp?pls:ms.loads).slice().sort(function(a,b){return loadDay(b).localeCompare(loadDay(a));}).map(function(l){
     return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(nm(getDrv(l.driverId)))+'</td><td>'+esc(brokerName(l))+'</td><td>'+fmtD(l.pickup)+'<div class="muted small">Drop-off '+fmtD(l.delivery)+'</div></td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+(isDisp?(function(){var c=myCom(l),fv=myFee(l);
-      if(c.st==='paid')return money(fv)+'<div class="muted small">paid in '+esc((c.doc&&c.doc.no)||'payroll')+'</div>';
+      if(c.st==='paid')return money(fv)+'<div class="muted small">paid in '+esc(payNo(c.doc)?'payment '+payNo(c.doc):'payroll')+'</div>';
       if(c.st==='due')return money(fv)+'<div class="muted small">due in payroll</div>';
       return '<span class="muted">'+money(fv)+'</span><div class="muted small">'+(c.st==='open'?'not delivered yet':'driver has not paid yet')+', not counted</div>';})():money(loadFee(l)))+'</td></tr>';}).join('');
   var yourLoads=session.role==='sales'?'on your drivers\' loads':'earned on your loads';
@@ -3586,7 +3585,6 @@ function pDriverOv(){
   '<div class="stats">'+
     statTile('Active drivers',String(active),'of '+drvs.length+(mine?' assigned to you':'')+' with a load in this '+(r.p==='Custom'?'period':r.p.toLowerCase()))+
     statTile('Loads',String(t.n),plural(t.deliv,'load')+' delivered')+
-    statTile('Total miles',NUM.format(t.loaded+t.dead),NUM.format(t.dead)+' deadhead miles')+
     statTile('Dispatch fees',money(r2(t.fees)),'on '+money(r2(t.rev))+' load revenue')+
   '</div>'+
   '<section class="panel"><header><div><h2>'+(mine?'My drivers':'Each driver')+'</h2><div class="muted small">'+(mine?'Drivers assigned to you as their dispatcher. ':'')+'Every load counts in the period of its delivery date. Revenue and fees count those loads once they are delivered.</div></div>'+
@@ -3661,6 +3659,13 @@ var MSET={
   bk:function(ym){ui.bkChip='Month';ui.bkYm=ym;ui.bkR={from:mFrom(ym),to:mTo(ym)};},
   sp:function(ym){ui.spChip='Month';ui.spYm=ym;ui.spR={from:mFrom(ym),to:mTo(ym)};}
 };
+/* a month chosen on the Monthly Report becomes the month on every page of this portal */
+function monthEverywhere(ym){
+  Object.keys(MSET).forEach(function(k){try{MSET[k](ym);}catch(e){}});
+  ui.ovChip='Month';ui.ovYm=ym;ui.ov={from:mFrom(ym),to:mTo(ym)};
+  ui.ym=ym;ui.reportYm=ym;ui.mrMode='Month';ui.salYm=ym;ui.tmP='Month';ui.tmYm=ym;
+  ui.slipYm=ym;ui.loadsYm=ym;ui.drvYm=ym;ui.invYm=ym;ui.moYm=ym;
+}
 function ovBar(){
   var c=ovCurrent();
   return '<div class="ovbar"><div class="chips">'+['Today','Yesterday','This Week','This Month','Last Month','Custom Range'].map(function(n){
@@ -3755,7 +3760,7 @@ function moCalc(per){
   });
   db.payruns.forEach(function(r){
     if(!inR(moMid(r.from,r.to)))return;
-    sal.push({kind:'Custom range',issued:r.issued,comUsd:moComUsd(r),no:r.no,empId:r.empId,name:r.empName||nm(getEmp(r.empId)),title:r.empTitle||(getEmp(r.empId)||{}).title||'',period:fmtD(r.from)+' to '+fmtD(r.to),base:Number(r.base)||0,commission:Number(r.commission)||0,bonus:Number(r.bonus)||0,gross:Number(r.gross)||0,advance:Number(r.advance)||0,fines:Number(r.fines)||0,net:Number(r.net)||0});
+    sal.push({kind:'Custom range',issued:r.issued,comUsd:moComUsd(r),no:payNo(r),empId:r.empId,name:r.empName||nm(getEmp(r.empId)),title:r.empTitle||(getEmp(r.empId)||{}).title||'',period:fmtD(r.from)+' to '+fmtD(r.to),base:Number(r.base)||0,commission:Number(r.commission)||0,bonus:Number(r.bonus)||0,gross:Number(r.gross)||0,advance:Number(r.advance)||0,fines:Number(r.fines)||0,net:Number(r.net)||0});
   });
   sal.sort(function(a,b){return String(a.title).localeCompare(String(b.title))||String(a.name).localeCompare(String(b.name));});
   var salRs=sal.reduce(function(s,x){return s+x.net;},0);
@@ -3839,8 +3844,8 @@ function moPaidInvTable(c,forPrint){
       return plural(own,'invoice')+' issued in this period and paid'+(lt?' ('+lt+' paid in a later month)':'')+(mv?' + '+plural(mv,'invoice')+' from an earlier month (highlighted)':'')+' · '+plural(n,'driver')+' · total '+money(tot)+(c.incRs?' ('+rs(c.incRs)+')':'');})()+'</p>'+
     (!forPrint&&c.per&&c.per.mode==='month'?'<p class="small muted" style="margin:4px 14px 0">'+(moPrintedOn(c.per.ym)?'This report was first printed on '+esc(fmtD(moPrintedOn(c.per.ym)))+'. Invoices of this month paid after that day show in the report of the month they are paid in. <button class="btn sm" type="button" data-action="mo-unprint" data-ym="'+esc(c.per.ym)+'">Clear print record</button>':'Not printed yet. Once you print it, invoices of this month that are paid later will show in the report of the month they are paid in.')+'</p>':'');
   if(!rows.length)return head;
-  return head+'<div class="tablewrap"'+(forPrint?'':' style="margin:0 14px"')+'><table style="min-width:640px"><thead><tr><th>Issued</th><th>Paid on</th><th>Driver name</th><th>Driver MC</th><th class="num">Invoice amount ($)</th></tr></thead><tbody>'+
-    rows.map(function(x){return '<tr'+(x.moved?' style="background:#fff4e0"':'')+'><td class="nw" style="white-space:nowrap'+(x.moved?';background:#fff4e0':'')+'">'+esc(fmtD(x.date))+(x.moved?'<div class="small" style="font-weight:700;color:#8a4b00">From an earlier month</div>':'')+'</td><td style="white-space:nowrap">'+(x.paid?esc(fmtD(x.paid)):'—')+(x.late?'<div class="small" style="color:var(--warn);white-space:normal;font-weight:600">'+esc(x.late)+'</div>':'')+'</td><td>'+esc(x.driver)+'</td><td class="mono">'+esc(x.mc)+'</td><td class="num">'+money(x.amt)+'</td></tr>';}).join('')+
+  return head+'<div class="tablewrap"'+(forPrint?'':' style="margin:0 14px"')+'><table style="min-width:640px"><thead><tr><th>Issued</th><th>Paid on</th><th>Driver name</th><th>Invoice no.</th><th class="num">Invoice amount ($)</th></tr></thead><tbody>'+
+    rows.map(function(x){return '<tr'+(x.moved?' style="background:#fff4e0"':'')+'><td class="nw" style="white-space:nowrap'+(x.moved?';background:#fff4e0':'')+'">'+esc(fmtD(x.date))+(x.moved?'<div class="small" style="font-weight:700;color:#8a4b00">From an earlier month</div>':'')+'</td><td style="white-space:nowrap">'+(x.paid?esc(fmtD(x.paid)):'—')+(x.late?'<div class="small" style="color:var(--warn);white-space:normal;font-weight:600">'+esc(x.late)+'</div>':'')+'</td><td>'+esc(x.driver)+'</td><td class="mono">'+esc((x.no||'—'))+'</td><td class="num">'+money(x.amt)+'</td></tr>';}).join('')+
     '<tr class="total"><td colspan="4">Total</td><td class="num">'+money(tot)+'</td></tr></tbody></table></div>';
 }
 /* the printable report */
@@ -4174,7 +4179,6 @@ function pDrivers(){
       '<td>'+stPill(drvStatus(d))+activeNote(d)+'</td>'+
       '<td class="num">'+d.feePct+'%</td><td class="num">'+(dym?'<b>'+mst(d).n+'</b><div class="muted small">'+mst(d).deliv+' delivered</div>':ls.length)+'</td>'+
       (dym?'<td class="num"><b>'+money(mst(d).rev)+'</b><div class="muted small">'+money(mst(d).fees)+' dispatch fee</div></td>':'')+
-      '<td class="num">'+(ready.length?money(readyAmt)+' <span class="muted small">('+ready.length+')</span>':'—')+'</td>'+
       '<td><div class="rowact"><button class="btn sm'+(awaitingDisp(d)&&edit?' primary':'')+'" type="button" data-action="'+(awaitingDisp(d)&&edit?'edit-driver':'driver-info')+'" data-id="'+d.id+'">'+(awaitingDisp(d)&&edit?'Review':'Details')+'</button>'+chatBtn(d.id)+docsBtn(d.id)+
         (inv&&ready.length?'<button class="btn sm primary" type="button" data-action="invoice-driver" data-id="'+d.id+'">Invoice ready loads</button>':'')+
         (edit?'<button class="btn sm" type="button" data-action="edit-driver" data-id="'+d.id+'">Edit</button><button class="btn sm danger" type="button" data-action="delete-driver" data-id="'+d.id+'">Delete</button>':'')+'</div></td></tr>';}).join('');
@@ -4185,7 +4189,7 @@ function pDrivers(){
   '<section class="panel"><div class="toolbar"><div class="chips">'+['All','Awaiting dispatcher','Active','In Loop','Not Responding'].map(function(t){return '<button class="chip" type="button" data-action="drv-tab" data-p="'+t+'" aria-pressed="'+(dtab===t)+'">'+t+'</button>';}).join('')+'</div></div><div class="toolbar"><input id="drvSearch" class="searchbox" type="search" placeholder="Search drivers by name or MC" value="'+esc(ui.drvQ)+'" aria-label="Search drivers"><button class="btn sm" type="button" data-action="clear-drvq">Clear</button>'+
     '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-left:auto">Month '+ymSelect('drvYm',dym,' aria-label="Dispatch month"','All months')+'</label></div>'+
     (dym?drvMonthSum(dym,dmr,dtab,dq):'')+
-    (rows?'<div class="tablewrap"><table><thead><tr><th>Driver</th><th>MC and contact</th><th>Sales agent</th><th>Dispatcher</th><th>Status</th><th class="num">Dispatch fee</th><th class="num">'+(dym?'Loads (month)':'Loads')+'</th>'+(dym?'<th class="num">Earned (month)</th>':'')+'<th class="num">Ready to invoice</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(dym?'No driver had a load in '+esc(dmLabel(dym))+(ui.drvQ.trim()||dtab!=='All'?' that matches':'')+'.':ui.drvQ.trim()||dtab!=='All'?'No drivers match.':'No drivers yet. Add your first driver to start booking loads.')+'</div>')+'</section>';
+    (rows?'<div class="tablewrap"><table><thead><tr><th>Driver</th><th>MC and contact</th><th>Sales agent</th><th>Dispatcher</th><th>Status</th><th class="num">Dispatch fee</th><th class="num">'+(dym?'Loads (month)':'Loads')+'</th>'+(dym?'<th class="num">Earned (month)</th>':'')+'<th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(dym?'No driver had a load in '+esc(dmLabel(dym))+(ui.drvQ.trim()||dtab!=='All'?' that matches':'')+'.':ui.drvQ.trim()||dtab!=='All'?'No drivers match.':'No drivers yet. Add your first driver to start booking loads.')+'</div>')+'</section>';
 }
 /* Drivers page with a month chosen: how many drivers ran loads and what they earned */
 function drvMonthSum(ym,r,dtab,dq){
@@ -4274,8 +4278,7 @@ function brokerPanelHtml(c){
     '<div class="bprate"><b class="small">Rating</b>'+B_RATINGS.map(function(r){return '<button class="chip" type="button" data-action="bp-rate" data-r="'+r+'" aria-pressed="'+(c.rating===r)+'">'+r+'</button>';}).join('')+
       (rated?'<span class="muted small">set by '+esc(c.ratingBy||'—')+(c.ratingAt?' on '+esc(fmtD(dayOf(c.ratingAt))):'')+' · click it again to clear</span>':'<span class="muted small">Not rated yet</span>')+'</div>'+
     '<div class="bpsum">'+stat('All-time loads',String(cnt.total),mine&&cnt.total!==all.length?plural(all.length,'load')+' are yours':'')+stat('Agents',String(ags.length),'')+
-      stat('Revenue',money(sumBy(all,function(l){return Number(l.rate)||0;})),mine?'on your loads':'total load rates')+stat('Avg $/mile',pm==null?'—':money(pm),'rate ÷ loaded miles')+
-      stat('Avg days to pay',payDaysTxt(pd),pd?'invoice sent → paid · '+plural(pd.n,'invoice'):'no paid invoices yet')+'</div>';
+      stat('Revenue',money(sumBy(all,function(l){return Number(l.rate)||0;})),mine?'on your loads':'total load rates')+stat('Avg $/mile',pm==null?'—':money(pm),'rate ÷ loaded miles')+'</div>';
   var notes=(Array.isArray(c.notes)?c.notes:[]).slice().sort(function(a,b){return String(b.at||'').localeCompare(String(a.at||''));});
   var notesHtml='<h3>Notes</h3><div class="bpnotes">'+
     '<div class="bpnoteform"><textarea id="bpNoteText" maxlength="1000" placeholder="e.g. late payer, pays detention, needs tracking every 2 hours" aria-label="New note"></textarea><div><button class="btn primary sm" type="button" data-action="bp-note-add">Add note</button></div></div>'+
@@ -4288,7 +4291,7 @@ function brokerPanelHtml(c){
       '<span class="small muted">'+plural(ls.length,'load')+' · '+money(sumBy(ls,function(l){return Number(l.rate)||0;}))+(last?' · last '+esc(fmtD(last)):'')+'</span></button>';};
   var cards=ags.map(function(a){
     var ls=all.filter(function(l){return l.agentId===a.id;});
-    return card(a.id,a.name||a.email||'Agent',[esc(a.email||'No email'),esc((a.phone||'No phone')+(a.ext?' · ext '+a.ext:''))],ls,'');}).join('');
+    return card(a.id,a.name||a.email||'Agent',[esc(a.email||'No email'),esc(fmtPhone(a.phone,a.ext)||'No phone')],ls,'');}).join('');
   var orphan=all.filter(function(l){return !l.agentId||!known[l.agentId];});
   if(orphan.length)cards+=card('none','Agent not saved',['Older loads without an agent'],orphan,' nosave');
   /* filters */
@@ -4312,6 +4315,14 @@ function brokerPanelHtml(c){
       :'<div class="empty">'+(all.length?'No loads match these filters.':(mine?'You have no loads with this broker yet.':'No loads with this broker yet.'))+'</div>');
 }
 function bpRefresh(){var c=getCust(bp.id),b=$('bpBody');if(c&&b)b.innerHTML=brokerPanelHtml(c);}
+/* phone shown like (510) 876-5674 x 6543 */
+function fmtPhone(ph,ext){
+  ph=String(ph||'').trim();var d=ph.replace(/\D/g,'');
+  if(d.length===11&&d[0]==='1')d=d.slice(1);
+  var out=d.length===10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):ph;
+  var x=String(ext||'').trim();
+  return out+(x?(out?' ':'')+'x '+x:'');
+}
 function brokerBtn(l,plain){var c=getCust(l.customerId);return c?'<button class="bname'+(plain?' plain':'')+'" type="button" data-action="broker-panel" data-id="'+esc(c.id)+'">'+esc(c.name)+'</button>':esc(brokerName(l));}
 function pCustomers(){
   var edit=can('editBrokers'),del=can('delBroker');
@@ -4320,12 +4331,12 @@ function pCustomers(){
   var rows=db.customers.filter(function(c){return !cq||hay(c).indexOf(cq)>-1;}).sort(function(a,b){return brokerCounts(b).total-brokerCounts(a).total||String(a.name).localeCompare(String(b.name));}).map(function(c){
     var u=brokerCounts(c),ag=recentAgent(c)||{},more=agentsOf(c).length-1,pm=perMile(brokerLoads(c)),last=lastLoadDay(c);
     return '<tr><td><button class="bname" type="button" data-action="broker-panel" data-id="'+esc(c.id)+'">'+esc(c.name)+'</button></td><td>'+(ratingPill(c)||'<span class="muted">—</span>')+'</td><td>'+esc(c.mc||'—')+'</td>'+
-      '<td>'+esc(ag.name||'—')+(more>0?'<span class="more">+'+more+' more</span>':'')+'</td><td>'+esc(ag.phone||'—')+'</td><td>'+esc(ag.ext||'—')+'</td><td>'+esc(ag.email||'—')+'</td>'+
-      '<td class="num">'+u.week+'</td><td class="num">'+u.month+'</td><td class="num"><b>'+u.total+'</b></td>'+
-      '<td class="num">'+(pm==null?'—':money(pm))+'</td><td class="num" style="white-space:nowrap">'+payDaysTxt(brokerPayDays(c))+'</td><td style="white-space:nowrap">'+(last?esc(fmtD(last)):'—')+'</td>'+
+      '<td>'+esc(ag.name||'—')+(more>0?'<span class="more">+'+more+' more</span>':'')+'</td><td style="white-space:nowrap">'+esc(fmtPhone(ag.phone,ag.ext)||'—')+'</td><td>'+esc(ag.email||'—')+'</td>'+
+      '<td class="num">'+u.month+'</td><td class="num"><b>'+u.total+'</b></td>'+
+      '<td class="num">'+(pm==null?'—':money(pm))+'</td><td style="white-space:nowrap">'+(last?esc(fmtD(last)):'—')+'</td>'+
       '<td><div class="rowact">'+(edit?'<button class="btn sm" type="button" data-action="edit-customer" data-id="'+c.id+'">Edit</button>':'')+(del?'<button class="btn sm danger" type="button" data-action="delete-customer" data-id="'+c.id+'">Delete</button>':'')+'</div></td></tr>';}).join('');
   return head('Brokers','Broker contacts, and how many loads we have done with each company',edit?'<button class="btn primary" type="button" data-action="new-customer">Add broker</button>':'')+
-  '<section class="panel"><div class="toolbar"><input id="cusSearch" class="searchbox" type="search" placeholder="Search company, agent, email or MC" value="'+esc(ui.cusQ)+'" aria-label="Search brokers"><button class="btn sm" type="button" data-action="clear-cusq">Clear</button></div>'+(rows?'<div class="tablewrap"><table style="min-width:1340px"><thead><tr><th>Company</th><th>Rating</th><th>MC</th><th>Broker</th><th>Phone</th><th>Ext</th><th>Email</th><th class="num">This week</th><th class="num">This month</th><th class="num">All-time loads</th><th class="num">Avg $/mile</th><th class="num">Avg days to pay</th><th>Last load</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(ui.cusQ.trim()?'No brokers match your search.':'No brokers yet. They appear here as you add loads, or add one yourself.')+'</div>')+'</section>';
+  '<section class="panel"><div class="toolbar"><input id="cusSearch" class="searchbox" type="search" placeholder="Search company, agent, email or MC" value="'+esc(ui.cusQ)+'" aria-label="Search brokers"><button class="btn sm" type="button" data-action="clear-cusq">Clear</button></div>'+(rows?'<div class="tablewrap"><table style="min-width:1120px"><thead><tr><th>Company</th><th>Rating</th><th>MC</th><th>Broker</th><th>Phone</th><th>Email</th><th class="num">This month</th><th class="num">All-time loads</th><th class="num">Avg $/mile</th><th>Last load</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(ui.cusQ.trim()?'No brokers match your search.':'No brokers yet. They appear here as you add loads, or add one yourself.')+'</div>')+'</section>';
 }
 function customerForm(c){
   c=c||{id:'',contact:'',name:'',phone:'',ext:'',email:'',loadLimit:0,limitPeriod:'Month'};
@@ -4404,9 +4415,9 @@ function invoiceDoc(inv){
     '<div class="tablewrap"><table><thead><tr><th>Load</th><th>Route</th><th>Delivered</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
     ls.map(function(l){var f=invFee(inv,l);return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">Broker: '+esc(brokerName(l))+'</span></div></td><td>'+fmtD(l.delivery)+'</td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(f)+'</td></tr>';}).join('')+
     '</tbody></table></div>'+
-    (invAdj(inv)?'<div class="totals" style="margin-bottom:0"><div><span>'+esc(invAdj(inv).label)+'</span><span>'+money(invAdj(inv).amount)+'</span></div></div>':'')+
+    (invAdj(inv)?'<div class="totals" style="margin-bottom:0"><div><span><b>Adjustment</b>'+(invAdj(inv).label&&invAdj(inv).label!=='Adjustment'?' · '+esc(invAdj(inv).label):'')+'</span><span>'+(invAdj(inv).amount<0?'−'+money(-invAdj(inv).amount):'+'+money(invAdj(inv).amount))+'</span></div></div>':'')+
     '<div class="totals"><div><span>Loads</span><span>'+ls.length+'</span></div><div><span>Miles</span><span>'+NUM.format(miles)+'</span></div><div><span>Load rates (for reference)</span><span>'+money(rate)+'</span></div><div class="grand"><span>Dispatch fee due</span><span>'+money(inv.total)+'</span></div></div>'+
-    (inv.note?'<div class="foot" style="white-space:pre-wrap">'+esc(inv.note)+'</div>':'')+
+    (inv.note?'<div class="foot" style="white-space:pre-wrap"><b>Note:</b> '+esc(inv.note)+'</div>':'')+
     '<div class="foot">Issued by '+esc(s.company)+' to '+esc(nm(d,'carrier'))+'\n'+esc(s.payInstr)+'</div></div>';
 }
 function invoiceText(inv){
@@ -4414,7 +4425,7 @@ function invoiceText(inv){
   var ls=inv.loadIds.map(getLoad).filter(Boolean);
   var t=['DISPATCH FEE INVOICE '+inv.no,'','From: '+s.company,'To: '+nm(d,'carrier')+' ('+(d?d.mc:'')+'), driver '+nm(d),'Dispatch fee: '+(d&&d.feePct!=null&&d.feePct!==''?d.feePct+'% of each load rate':'not set'),'Issued: '+fmtD(inv.issued),'Due: '+fmtD(inv.due),'','LOADS'];
   ls.forEach(function(l){t.push(l.ref+' | '+l.origin+' to '+l.dest+' | delivered '+fmtD(l.delivery)+' | load rate '+money(l.rate)+' | dispatch fee '+(d?d.feePct+'% = ':'')+money(invFee(inv,l)));});
-  if(invAdj(inv))t.push(invAdj(inv).label+': '+money(invAdj(inv).amount));
+  if(invAdj(inv))t.push('Adjustment'+(invAdj(inv).label&&invAdj(inv).label!=='Adjustment'?' ('+invAdj(inv).label+')':'')+': '+(invAdj(inv).amount<0?'-'+money(-invAdj(inv).amount):'+'+money(invAdj(inv).amount)));
   if(inv.note)t.push('','Note: '+inv.note);
   t.push('','TOTAL DISPATCH FEE DUE: '+money(inv.total),'',s.payInstr,'Issued by '+s.company);
   return t.join('\n');
@@ -4631,7 +4642,7 @@ function payRecords(filterFn){
 }
 function payRecRow(x,mine){
   var p=x.p,e=empOf(p),slip=x.kind==='slip';
-  return '<tr><td><span class="mono">'+esc(p.no)+'</span>'+(p.manual?' <span class="pill p-issued">Edited</span>':'')+'</td>'+(mine?'':'<td>'+esc(nm(e))+'</td>')+
+  return '<tr><td><span class="mono">'+esc(slip?p.no:(payNo(p)||'—'))+'</span>'+(p.manual?' <span class="pill p-issued">Edited</span>':'')+'</td>'+(mine?'':'<td>'+esc(nm(e))+'</td>')+
     '<td>'+(slip?'Monthly payslip':'Custom period')+'</td><td>'+esc(x.period)+'</td><td>'+fmtD(p.issued)+'</td><td class="num"><b>'+rs(p.net)+'</b></td>'+
     '<td><div class="rowact"><button class="btn sm" type="button" data-action="'+(slip?'view-slip':'view-run')+'" data-id="'+p.id+'">View</button>'+
     (!mine&&can('payroll')?'<button class="btn sm danger" type="button" data-action="'+(slip?'delete-slip':'delete-run')+'" data-id="'+p.id+'">Delete</button>':'')+'</div></td></tr>';
@@ -4905,12 +4916,19 @@ function basePaidIn(empId,ym,from,to){
   var pr=db.payruns.find(function(p){
     if(p.empId!==empId||(p.from===from&&p.to===to)||!(p.from<=me&&p.to>=ms))return false;
     return Array.isArray(p.baseMonths)?p.baseMonths.indexOf(ym)>-1:(Number(p.base)||0)>0;});
-  return pr?pr.no:'';
+  return pr?(payNo(pr)?'payment '+payNo(pr):'an earlier payment'):'';
 }
 function empOf(p){return getEmp(p.empId)||{name:p.empName||'(removed)',title:p.empTitle||''};}
+/* payroll payment number as shown: digits only (13), and only on dispatchers' payments; sales and others show none */
+function payNo(p){
+  if(!p)return '';
+  var t=p.empTitle||((getEmp(p.empId)||{}).title)||(session&&session.role==='dispatcher'&&p.empId===session.empId?'Dispatcher':'');
+  if(t!=='Dispatcher')return '';
+  var n=lastNum(p.no);return n?String(n):'';
+}
 function runOverlap(empId,from,to,ignoreId){
   var r=db.payruns.find(function(p){return p.empId===empId&&p.id!==ignoreId&&p.from<=to&&p.to>=from;});
-  return r?'Already paid in '+r.no+' ('+fmtD(r.from)+' to '+fmtD(r.to)+')':'';
+  return r?'Already paid'+(payNo(r)?' in payment '+payNo(r):'')+' ('+fmtD(r.from)+' to '+fmtD(r.to)+')':'';
 }
 function rangeBlock(empId,from,to){
   var m=runOverlap(empId,from,to);if(m)return m;
@@ -4934,7 +4952,7 @@ function rgRowsHtml(r){
     var c=x.c,e=x.e,blk=rangeBlock(e.id,r.from,r.to),run=db.payruns.find(function(p){return p.empId===e.id&&p.from===r.from&&p.to===r.to;});
     if(c.net==null)missing++;else{total+=c.net;n++;}
     var can_=c.net!=null&&c.net>=0&&(c.gross||0)>0&&!blk;if(can_)payable++;
-    var status=run?'<span class="pill p-paid">Paid · '+esc(run.no)+'</span>':(blk?'<span class="pill p-overdue" title="'+esc(blk)+'">Blocked</span><div class="muted small">'+esc(blk)+'</div>':'<span class="muted small">Not paid</span>');
+    var status=run?'<span class="pill p-paid">Paid'+(payNo(run)?' · '+esc(payNo(run)):'')+'</span>':(blk?'<span class="pill p-overdue" title="'+esc(blk)+'">Blocked</span><div class="muted small">'+esc(blk)+'</div>':'<span class="muted small">Not paid</span>');
     return '<tr><td><div class="stack"><b>'+esc(e.name)+'</b><span class="muted small">'+esc(e.title)+' · '+esc(c.basis)+'</span></div></td>'+
       '<td class="num">'+rs(c.base)+(c.baseWarn?'<div class="small" style="color:var(--warn);white-space:normal">'+esc(c.baseWarn)+'</div>':'')+'</td>'+
       '<td class="num">'+rgPctHtml(e,c,r)+'</td>'+
@@ -4987,7 +5005,7 @@ function rgDetail(empId){
   var items=c.items.map(function(i){var locked=!!runOverlap(empId,i.date,i.date);
     return '<tr><td>'+fmtD(i.date)+'</td><td>'+esc(i.type)+'</td><td class="num">'+(i.type==='Hours worked'?NUM.format(i.amount)+' h':rs(i.amount))+'</td><td>'+esc(i.note||'')+'</td><td>'+(locked?'<span class="muted small">Paid</span>':'<div class="rowact"><button class="btn sm danger" type="button" data-action="del-item" data-id="'+i.id+'">Delete</button></div>')+'</td></tr>';}).join('');
   var hist=db.payruns.filter(function(p){return p.empId===empId;}).sort(function(a,b){return String(b.from).localeCompare(String(a.from));}).map(function(p){
-    return '<tr><td><span class="mono">'+esc(p.no)+'</span></td><td>'+fmtD(p.from)+' to '+fmtD(p.to)+'</td><td>Custom range</td><td class="num"><b>'+rs(p.net)+'</b></td><td><div class="rowact"><button class="btn sm" type="button" data-action="view-run" data-id="'+p.id+'">View</button></div></td></tr>';}).join('')+
+    return '<tr><td><span class="mono">'+esc(payNo(p)||'—')+'</span></td><td>'+fmtD(p.from)+' to '+fmtD(p.to)+'</td><td>Custom range</td><td class="num"><b>'+rs(p.net)+'</b></td><td><div class="rowact"><button class="btn sm" type="button" data-action="view-run" data-id="'+p.id+'">View</button></div></td></tr>';}).join('')+
     db.payslips.filter(function(p){return p.empId===empId;}).sort(function(a,b){return String(b.ym).localeCompare(String(a.ym));}).map(function(p){
     return '<tr><td><span class="mono">'+esc(p.no)+'</span></td><td>'+esc(ymLabel(p.ym))+'</td><td>Monthly payslip</td><td class="num"><b>'+rs(p.net)+'</b></td><td><div class="rowact"><button class="btn sm" type="button" data-action="view-slip" data-id="'+p.id+'">View</button></div></td></tr>';}).join('');
   openModal(sheetHead('Salary details: '+e.name)+
@@ -5020,14 +5038,14 @@ function issueRun(empId,from,to){
 function runDoc(p){
   var e=empOf(p),s=db.settings,c=Object.assign({},p);
   return '<div class="doc"><div class="top"><div><div class="lbl">Payslip · custom period</div><div class="no">'+fmtD(p.from)+' to '+fmtD(p.to)+'</div></div><div style="text-align:right"><b>'+esc(s.company)+'</b><div class="addr muted small">'+esc(s.address)+'</div></div></div>'+
-  '<div class="meta"><div><b>Employee</b><span>'+esc(nm(e))+'</span><span class="muted small">'+esc(e?e.title:'')+' · '+esc(p.basis)+'</span></div><div><b>Payment number</b><span class="mono">'+esc(p.no)+'</span></div><div><b>Issued</b><span>'+fmtD(p.issued)+'</span></div></div>'+
+  '<div class="meta"><div><b>Employee</b><span>'+esc(nm(e))+'</span><span class="muted small">'+esc(e?e.title:'')+' · '+esc(p.basis)+'</span></div>'+(payNo(p)?'<div><b>Payment number</b><span class="mono">'+esc(payNo(p))+'</span></div>':'')+'<div><b>Issued</b><span>'+fmtD(p.issued)+'</span></div></div>'+
   '<div class="tablewrap"><table style="min-width:460px"><thead><tr><th>Item</th><th>Basis</th><th class="num">Amount</th></tr></thead><tbody>'+rgLinesHtml(c)+'</tbody></table></div>'+
   '<div class="totals"><div class="grand"><span>Net pay</span><span>'+rs(p.net)+'</span></div></div></div>';
 }
 function viewRun(id){
   var p=db.payruns.find(function(x){return x.id===id;});if(!p||!canSeePay(p))return;
-  openModal(sheetHead('Payment '+p.no)+runDoc(p)+
-    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="print-doc" data-name="'+esc('Payslip '+p.no+' - '+nm(empOf(p)))+'">Export PDF</button>'+
+  openModal(sheetHead('Payment'+(payNo(p)?' '+payNo(p):''))+runDoc(p)+
+    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="print-doc" data-name="'+esc('Payslip '+(payNo(p)?payNo(p)+' ':'')+'- '+nm(empOf(p)))+'">Export PDF</button>'+
     (can('payroll')?'<button class="btn danger" type="button" data-action="delete-run" data-id="'+p.id+'">Delete payment</button>':'')+'</div>',true);
 }
 
@@ -5157,10 +5175,10 @@ function pDispReports(){
   var filtered=!!(ui.drFrom||ui.drTo);
   var tot={all:0,n:0,dn:0,fees:0,drv:{}};
   var rows=disp.map(function(e){
-    var all=db.loads.filter(function(l){return l.dispatcherId===e.id;}),inP=drLoads(e.id),drv={},dn=inP.filter(drCounts).length,g=drGross(inP),fu=drFull(inP),pa=drPaid(inP);
+    var all=db.loads.filter(function(l){return l.dispatcherId===e.id;}),inP=drLoads(e.id),drv={},dn=inP.filter(drCounts).length,g=drGross(inP),fu=drFull(inP),pa=drPaid(inP),lr=sumBy(inP.filter(drCounts),function(l){return Number(l.rate)||0;});
     inP.forEach(function(l){drv[l.driverId]=1;tot.drv[l.driverId]=1;});
-    tot.all+=all.length;tot.n+=inP.length;tot.dn+=dn;tot.fees+=g;tot.full=(tot.full||0)+fu;tot.paid=(tot.paid||0)+pa;
-    return '<tr><td><b>'+esc(e.name)+'</b></td><td class="num">'+all.length+'</td><td class="num"><b>'+inP.length+'</b></td><td class="num">'+dn+'</td><td class="num">'+Object.keys(drv).length+'</td><td class="num">'+money(fu)+'</td><td class="num">'+drDisc(r2(pa-fu))+'</td><td class="num">'+money(pa)+'</td><td class="num"><b>'+money(g)+'</b></td>'+
+    tot.all+=all.length;tot.n+=inP.length;tot.dn+=dn;tot.fees+=g;tot.full=(tot.full||0)+fu;tot.paid=(tot.paid||0)+pa;tot.rate=(tot.rate||0)+lr;
+    return '<tr><td><b>'+esc(e.name)+'</b></td><td class="num">'+all.length+'</td><td class="num"><b>'+inP.length+'</b></td><td class="num">'+dn+'</td><td class="num">'+Object.keys(drv).length+'</td><td class="num">'+money(lr)+'</td><td class="num">'+money(fu)+'</td><td class="num">'+drDisc(r2(pa-fu))+'</td><td class="num">'+money(pa)+'</td><td class="num"><b>'+money(g)+'</b></td>'+
       '<td><div class="rowact"><button class="btn sm'+(ui.drDisp===e.id?' primary':'')+'" type="button" data-action="dr-select" data-id="'+e.id+'">View report</button></div></td></tr>';}).join('');
   var sel=getEmp(ui.drDisp),detail='';
   if(sel){
@@ -5169,17 +5187,17 @@ function pDispReports(){
     var blocks=Object.keys(by).sort(function(a,b){return nm(getDrv(a)).localeCompare(nm(getDrv(b)));}).map(function(id){
       var d=getDrv(id),list=by[id].sort(function(a,b){return drDay(b).localeCompare(drDay(a));});
       return '<div style="margin-top:14px"><b>'+esc(nm(d))+'</b> <span class="muted small">'+esc(d?d.carrier:'')+' · '+plural(list.length,'load')+' · '+money(drGross(list))+' dispatch gross</span>'+
-        '<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Route</th><th>Pickup</th><th>Drop-off</th><th>Status</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
-        list.map(function(l){return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td>'+fmtD(l.pickup)+'</td><td>'+fmtD(l.delivery)+(l.deliveredOn&&l.deliveredOn!==l.delivery?'<div class="muted small">Marked delivered '+fmtD(l.deliveredOn)+'</div>':'')+'</td><td>'+pill(l.status)+'</td><td class="num">'+(function(){var c=drCom(l);
+        '<div class="tablewrap"><table style="min-width:740px"><thead><tr><th>Load</th><th>Route</th><th>Pickup</th><th>Drop-off</th><th>Status</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
+        list.map(function(l){return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td>'+fmtD(l.pickup)+'</td><td>'+fmtD(l.delivery)+(l.deliveredOn&&l.deliveredOn!==l.delivery?'<div class="muted small">Marked delivered '+fmtD(l.deliveredOn)+'</div>':'')+'</td><td>'+pill(l.status)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+(function(){var c=drCom(l);
           var fv=drFeeOf(l),nf=netFee(l),diff=Math.abs(nf-loadFee(l))>0.004?'<div class="small" style="color:var(--warn)">full '+money(loadFee(l))+' · driver paid '+money(nf)+'</div>':'';
-          if(c.st==='paid')return money(fv)+diff+'<div class="muted small">paid in '+esc(c.doc.no||'payroll')+'</div>';
+          if(c.st==='paid')return money(fv)+diff+'<div class="muted small">paid in '+esc(payNo(c.doc)?'payment '+payNo(c.doc):'payroll')+'</div>';
           if(c.st==='due')return money(fv)+diff+'<div class="muted small">due in payroll'+(c.date!==loadDay(l)?' · '+fmtD(c.date):'')+'</div>';
           return '<span class="muted">'+money(fv)+'</span><div class="muted small">'+(c.st==='open'?'not delivered yet':'driver has not paid yet')+', not counted</div>';})()+'</td></tr>';}).join('')+
         '</tbody></table></div></div>';}).join('');
     detail='<section class="panel"><header><div><h2>'+esc(sel.name)+'</h2><div class="muted small">'+plural(ls.length,'load')+(filtered?(ui.drBy==='pick'?' picked up':' counted')+' in this period':' in total')+' · '+plural(Object.keys(by).length,'driver')+' · '+plural(ls.filter(drCounts).length,'load')+' counted · '+money(drGross(ls))+' dispatch gross</div></div></header><div class="pad">'+(blocks||'<div class="empty">No loads for this dispatcher in this period.</div>')+'</div></section>';
   }
   tot.fees=r2(tot.fees);tot.full=r2(tot.full||0);tot.paid=r2(tot.paid||0);
-  var totRow='<tr class="total"><td>All dispatchers</td><td class="num">'+tot.all+'</td><td class="num">'+tot.n+'</td><td class="num">'+tot.dn+'</td><td class="num">'+Object.keys(tot.drv).length+'</td><td class="num">'+money(tot.full)+'</td><td class="num">'+drDisc(r2(tot.paid-tot.full))+'</td><td class="num">'+money(tot.paid)+'</td><td class="num">'+money(tot.fees)+'</td><td></td></tr>';
+  var totRow='<tr class="total"><td>All dispatchers</td><td class="num">'+tot.all+'</td><td class="num">'+tot.n+'</td><td class="num">'+tot.dn+'</td><td class="num">'+Object.keys(tot.drv).length+'</td><td class="num">'+money(r2(tot.rate||0))+'</td><td class="num">'+money(tot.full)+'</td><td class="num">'+drDisc(r2(tot.paid-tot.full))+'</td><td class="num">'+money(tot.paid)+'</td><td class="num">'+money(tot.fees)+'</td><td></td></tr>';
   return head('Dispatcher reports','Each dispatcher\'s loads, dispatch gross and the drivers they booked them for')+
   '<div class="stats" id="drTotals">'+
     statTile('Total loads',String(tot.n),'of all '+plural(disp.length,'dispatcher')+(filtered?(ui.drBy==='pick'?', picked up':', counted')+' in this period':', all time'))+
@@ -5193,7 +5211,7 @@ function pDispReports(){
     '<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>to</span>'+dateInput('drTo','',ui.drTo,'date')+'</label>'+
     '<button class="btn primary sm" type="button" data-action="dr-apply">Apply Filter</button><button class="btn sm" type="button" data-action="dr-reset">Reset</button><span class="muted small">Leave both dates empty to count all time.</span></div>'+
     '<p class="muted small" style="margin:0 0 10px">Dispatch gross is counted the same way as payroll commission: a load counts once the driver has paid it, in the period payroll counts it. From November 2026 the fee is what the driver paid: the fee on the invoice with its adjustment (before that, load rate × the driver\'s dispatch fee %) (a load already paid out stays in that payment\'s period). Delivered loads the driver has not paid yet are listed but not counted. Full fee = load rate × the driver\'s %; Discount = what the driver did not pay of it (invoice adjustments and changed fees); Driver paid = what came in.</p>'+
-    (rows?'<div class="tablewrap"><table><thead><tr><th>Dispatcher</th><th class="num">Loads (all time)</th><th class="num">Loads'+(filtered?' (period)':'')+'</th><th class="num">Counted</th><th class="num">Drivers</th><th class="num">Full fee</th><th class="num">Discount</th><th class="num">Driver paid</th><th class="num">Dispatch gross</th><th></th></tr></thead><tbody>'+rows+totRow+'</tbody></table></div>':'<div class="empty">No dispatchers yet. Add them on the Team page.</div>')+'</section>'+detail;
+    (rows?'<div class="tablewrap"><table><thead><tr><th>Dispatcher</th><th class="num">Loads (all time)</th><th class="num">Loads'+(filtered?' (period)':'')+'</th><th class="num">Counted</th><th class="num">Drivers</th><th class="num">Load rate</th><th class="num">Full fee</th><th class="num">Discount</th><th class="num">Driver paid</th><th class="num">Dispatch gross</th><th></th></tr></thead><tbody>'+rows+totRow+'</tbody></table></div>':'<div class="empty">No dispatchers yet. Add them on the Team page.</div>')+'</section>'+detail;
 }
 
 /* ---------- my account ---------- */
@@ -5721,7 +5739,7 @@ var actions={
   'rg-issue':function(el){
     if(!can('payroll'))return;var r=curRg(),x=issueRun(el.dataset.emp,r.from,r.to);
     if(x.err){toast(x.err);return;}
-    persist();closeModal();render();toast('Payment '+x.run.no+' issued');},
+    persist();closeModal();render();toast('Payment '+(payNo(x.run)?payNo(x.run)+' ':'')+'issued');},
   'rg-issue-all':function(){
     if(!can('payroll'))return;var r=curRg(),made=0,errs=0;
     db.employees.forEach(function(e){
@@ -6143,7 +6161,7 @@ document.addEventListener('change',function(e){
   if(t.id==='salMonth'&&okMonth(t.value)){ui.salYm=t.value;render();}
   if(t.id==='reportYear'&&t.value){ui.reportYear=t.value;render();}
   if(t.id==='ayEmp'&&t.value){ui.ayEmp=t.value;render();}
-  if(t.id==='moYm'&&t.value){ui.moYm=t.value;render();}
+  if(t.id==='moYm'&&t.value){ui.moYm=t.value;if(okMonth(t.value))monthEverywhere(t.value);render();}
   if(t.id==='ovMonth'&&t.value){ui.ovChip='Month';ui.ovYm=t.value;ui.ov={from:mFrom(t.value),to:mTo(t.value)};render();}
   if(t.dataset&&t.dataset.ymk&&MSET[t.dataset.ymk]&&okMonth(t.value)){MSET[t.dataset.ymk](t.value);render();return;}
   if(t.id==='lookFontSel'){if(session.role!=='admin')return;db.settings.font=t.value;applyLook();persist();toast('Font saved for everyone');return;}
