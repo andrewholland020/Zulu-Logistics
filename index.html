@@ -1088,6 +1088,7 @@ async function loadAll(bg){
     var upd={};rows.forEach(function(r){if(r.coll==='loads')upd[r.id]=r.updated_at;});
     var fixed=0;db.loads.forEach(function(l){if(!l.bookedAt&&upd[l.id]){l.bookedAt=new Date(upd[l.id]).toISOString();fixed++;}});
     db.loads.forEach(function(l){var want='';if(l.status==='Paid'){var iv=l.invoiceId?getInv(l.invoiceId):null;want=iv&&iv.status==='Paid'&&iv.paidOn?String(iv.paidOn):(l.paidOn||'');}if((l.paidOn||'')!==want){l.paidOn=want;fixed++;}});
+    fixed+=syncNetFees();
     if(fixed)setTimeout(persist,0);
   }else{
     /* dispatchers and sales agents cannot read payroll records: get the dispatch month dates */
@@ -2737,6 +2738,7 @@ function createInvoice(driverId,customerId,loadIds,issued){
   var inv={id:uid('inv'),no:no,driverId:driverId,customerId:customerId,loadIds:loadIds.slice(),fees:fees,issued:issued,terms:terms,due:addDays(issued,terms),status:'Sent',paidOn:'',total:r2(total)};
   db.invoices.push(inv);
   loadIds.forEach(function(id){var l=getLoad(id);if(l){l.status='Invoiced';l.invoiceId=inv.id;}});
+  syncNetFees();
   return inv;
 }
 
@@ -2812,6 +2814,38 @@ function brokerName(l){var c=getCust(l.customerId);return c?c.name:(l.brokerName
 function nm(o,f){return o?o[f||'name']:'(removed)';}
 function loadFee(l){var d=getDrv(l.driverId);return r2(l.rate*((d?d.feePct:0)/100));}
 function invFee(inv,l){return inv.fees&&inv.fees[l.id]!=null?inv.fees[l.id]:loadFee(l);}
+/* Commission is paid on what the driver actually pays, for loads counted from the November 2026 dispatch month on:
+   the fee written on the load's invoice plus the load's share of the invoice adjustment (split by fee).
+   Loads counted before that keep load rate x the driver's dispatch fee % (already paid in October payroll).
+   Admin and accountant work it out from the invoices; other logins (who cannot read invoices) use the copy
+   saved on the load (netFee), which the admin's portal keeps up to date. */
+var COM_NET_YM='2026-11';
+function netFeeCalc(l){
+  var iv=null;
+  if(l.invoiceId){var x=getInv(l.invoiceId);if(x&&(x.loadIds||[]).indexOf(l.id)>-1)iv=x;}
+  if(!iv)iv=db.invoices.find(function(i){return (i.loadIds||[]).indexOf(l.id)>-1;})||null;
+  if(!iv)return null;
+  var f=Number(invFee(iv,l))||0,a=invAdj(iv);if(!a)return r2(f);
+  var ids=(iv.loadIds||[]).filter(function(id){return !!getLoad(id);}),tot=0,given=0;
+  ids.forEach(function(id){tot+=Number(invFee(iv,getLoad(id)))||0;});
+  for(var i=0;i<ids.length;i++){
+    var fi=Number(invFee(iv,getLoad(ids[i])))||0,sh=i===ids.length-1?r2(a.amount-given):r2(tot>0?a.amount*fi/tot:a.amount/ids.length);
+    given=r2(given+sh);if(ids[i]===l.id)return r2(f+sh);
+  }
+  return r2(f);
+}
+function netFee(l){
+  var v=netFeeCalc(l);
+  if(v!=null)return v;
+  var office=session&&(session.role==='admin'||session.role==='accountant');
+  if(!office&&l.netFee!=null&&l.netFee!==''&&!isNaN(Number(l.netFee)))return Number(l.netFee);
+  return loadFee(l);
+}
+function comFee(l,d){return String(d||loadDay(l))>=mFrom(COM_NET_YM)?netFee(l):loadFee(l);}
+/* keep the saved copy on each load in step with its invoice (admin and accountant only) */
+function syncNetFees(){
+  var n=0;db.loads.forEach(function(l){var v=netFeeCalc(l);if(v==null){if(l.netFee!=null){delete l.netFee;n++;}}else if(l.netFee!==v){l.netFee=v;n++;}});return n;
+}
 function staff(kind){return db.employees.filter(function(e){return e.title===kind;});}
 function seedExpenses(){
   return [
@@ -3299,7 +3333,7 @@ function driverWeek(wk){
     '<tr class="total"><td>Total</td><td class="num">'+t.n+'</td><td class="num">'+NUM.format(t.loaded)+'</td><td class="num">'+NUM.format(t.dead)+'</td><td class="num">'+NUM.format(t.loaded+t.dead)+'</td><td class="num">'+money(r2(t.rev))+'</td></tr></tbody></table></div>':'<div class="empty">No drivers or loads for you this week.</div>')+'</section>';
 }
 function myComMonth(ym){var sl=db.payslips.find(function(p){return p.empId===session.empId&&p.ym===ym;});var cs=comSet(session.empId,session.role==='sales',mFrom(ym),mTo(ym),sl||null);
-  return {count:cs.loads.length,fees:sumBy(cs.loads,loadFee),late:cs.late.length,pending:cs.pending.length,pendingFees:sumBy(cs.pending,loadFee)};}
+  return {count:cs.loads.length,fees:sumBy(cs.loads,function(l){return comFee(l,cs.dates[l.id]);}),late:cs.late.length,pending:cs.pending.length,pendingFees:sumBy(cs.pending,function(l){return comFee(l,loadDay(l));})};}
 /* loads delivered in the period whose invoice the driver has not paid yet: shown separately, not in gross */
 function myPendingPanel(from,to,pct,rate,label){
   var sales=session.role==='sales',slip=from===mFrom(ymOfDate(from))&&to===mTo(ymOfDate(from))?db.payslips.find(function(p){return p.empId===session.empId&&p.ym===from.slice(0,7);}):null;
@@ -3307,7 +3341,7 @@ function myPendingPanel(from,to,pct,rate,label){
   if(!ls.length)return '';
   var fees=0,com=0;
   var rows=ls.map(function(l){
-    var f=loadFee(l),c=r2(f*pct/100);fees+=f;com+=c;
+    var f=comFee(l,loadDay(l)),c=r2(f*pct/100);fees+=f;com+=c;
     var inv=l.invoiceId&&db.invoices?getInv(l.invoiceId):null,st;
     if(l.status==='Delivered')st='<span class="pill p-delivered">Not invoiced yet</span>';
     else if(inv)st=(invStatus(inv)==='Overdue'?'<span class="pill p-overdue">Overdue</span>':'<span class="pill p-sent">Invoice sent</span>')+'<div class="muted small">'+esc(inv.no||'')+(inv.due?' · due '+esc(fmtD(inv.due)):'')+'</div>';
@@ -4815,8 +4849,8 @@ function rangeCalc(e,from,to){
   }else o.baseNote='Commission only. No base pay.';
   var selfRun=(db.payruns||[]).find(function(p){return p.empId===e.id&&p.from===from&&p.to===to;});
   var cs=comSet(e.id,agent,from,to,selfRun||null),ls=cs.loads;
-  var by={};ls.forEach(function(l){var ym=ymOfDate(cs.dates[l.id]);by[ym]=(by[ym]||0)+loadFee(l);});
-  var com=0,missing=false,fees=0;o.comRows=[];o.loads=ls.length;o.comLoadIds=ls.map(function(l){return l.id;});o.lateLoads=cs.late.length;o.pendingLoads=cs.pending.length;o.pendingFeesUsd=sumBy(cs.pending,loadFee);
+  var by={};ls.forEach(function(l){var ym=ymOfDate(cs.dates[l.id]);by[ym]=(by[ym]||0)+comFee(l,cs.dates[l.id]);});
+  var com=0,missing=false,fees=0;o.comRows=[];o.loads=ls.length;o.comLoadIds=ls.map(function(l){return l.id;});o.lateLoads=cs.late.length;o.pendingLoads=cs.pending.length;o.pendingFeesUsd=sumBy(cs.pending,function(l){return comFee(l,loadDay(l));});
   Object.keys(by).sort().forEach(function(ym){
     var f=r2(by[ym]),adj=adjFor(e.id,ym),pct=pctFor(adj,e),rate=fxFor(ym),amt=null;
     fees+=f;if(rate==null)missing=true;else{amt=Math.round(f*pct/100*rate);com+=amt;}
@@ -5070,7 +5104,8 @@ function drCom(l){
 }
 function drCounts(l){var c=drCom(l);return c.st==='paid'||c.st==='due';}
 function drDay(l){return ui.drBy==='pick'?String(l.pickup||''):drCom(l).date;}
-function drGross(list){return sumBy(list.filter(drCounts),loadFee);}
+function drFeeOf(l){return comFee(l,drCom(l).date);}
+function drGross(list){return sumBy(list.filter(drCounts),drFeeOf);}
 function drLoads(dispId){
   return db.loads.filter(function(l){
     if(l.dispatcherId!==dispId)return false;
@@ -5098,9 +5133,10 @@ function pDispReports(){
       return '<div style="margin-top:14px"><b>'+esc(nm(d))+'</b> <span class="muted small">'+esc(d?d.carrier:'')+' · '+plural(list.length,'load')+' · '+money(drGross(list))+' dispatch gross</span>'+
         '<div class="tablewrap"><table style="min-width:640px"><thead><tr><th>Load</th><th>Route</th><th>Pickup</th><th>Drop-off</th><th>Status</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
         list.map(function(l){return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td>'+fmtD(l.pickup)+'</td><td>'+fmtD(l.delivery)+(l.deliveredOn&&l.deliveredOn!==l.delivery?'<div class="muted small">Marked delivered '+fmtD(l.deliveredOn)+'</div>':'')+'</td><td>'+pill(l.status)+'</td><td class="num">'+(function(){var c=drCom(l);
-          if(c.st==='paid')return money(loadFee(l))+'<div class="muted small">paid in '+esc(c.doc.no||'payroll')+'</div>';
-          if(c.st==='due')return money(loadFee(l))+'<div class="muted small">due in payroll'+(c.date!==loadDay(l)?' · '+fmtD(c.date):'')+'</div>';
-          return '<span class="muted">'+money(loadFee(l))+'</span><div class="muted small">'+(c.st==='open'?'not delivered yet':'driver has not paid yet')+', not counted</div>';})()+'</td></tr>';}).join('')+
+          var fv=drFeeOf(l),diff=Math.abs(fv-loadFee(l))>0.004?'<div class="muted small">'+money(loadFee(l))+' at '+esc(String((getDrv(l.driverId)||{}).feePct||0))+'% · as paid by driver</div>':'';
+          if(c.st==='paid')return money(fv)+diff+'<div class="muted small">paid in '+esc(c.doc.no||'payroll')+'</div>';
+          if(c.st==='due')return money(fv)+diff+'<div class="muted small">due in payroll'+(c.date!==loadDay(l)?' · '+fmtD(c.date):'')+'</div>';
+          return '<span class="muted">'+money(fv)+'</span><div class="muted small">'+(c.st==='open'?'not delivered yet':'driver has not paid yet')+', not counted</div>';})()+'</td></tr>';}).join('')+
         '</tbody></table></div></div>';}).join('');
     detail='<section class="panel"><header><div><h2>'+esc(sel.name)+'</h2><div class="muted small">'+plural(ls.length,'load')+(filtered?(ui.drBy==='pick'?' picked up':' counted')+' in this period':' in total')+' · '+plural(Object.keys(by).length,'driver')+' · '+plural(ls.filter(drCounts).length,'load')+' counted · '+money(drGross(ls))+' dispatch gross</div></div></header><div class="pad">'+(blocks||'<div class="empty">No loads for this dispatcher in this period.</div>')+'</div></section>';
   }
@@ -5117,7 +5153,7 @@ function pDispReports(){
     '<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>From</span>'+dateInput('drFrom','',ui.drFrom,'date')+'</label>'+
     '<label class="field" style="grid-template-columns:auto 170px;align-items:center;gap:10px"><span>to</span>'+dateInput('drTo','',ui.drTo,'date')+'</label>'+
     '<button class="btn primary sm" type="button" data-action="dr-apply">Apply Filter</button><button class="btn sm" type="button" data-action="dr-reset">Reset</button><span class="muted small">Leave both dates empty to count all time.</span></div>'+
-    '<p class="muted small" style="margin:0 0 10px">Dispatch gross is counted the same way as payroll commission: a load counts once the driver has paid it, at load rate × the driver\'s dispatch fee %, in the period payroll counts it (a load already paid out stays in that payment\'s period). Delivered loads the driver has not paid yet are listed but not counted.</p>'+
+    '<p class="muted small" style="margin:0 0 10px">Dispatch gross is counted the same way as payroll commission: a load counts once the driver has paid it, in the period payroll counts it. From November 2026 the fee is what the driver paid: the fee on the invoice with its adjustment (before that, load rate × the driver\'s dispatch fee %) (a load already paid out stays in that payment\'s period). Delivered loads the driver has not paid yet are listed but not counted.</p>'+
     (rows?'<div class="tablewrap"><table><thead><tr><th>Dispatcher</th><th class="num">Loads (all time)</th><th class="num">Loads'+(filtered?' (period)':'')+'</th><th class="num">Counted</th><th class="num">Drivers</th><th class="num">Dispatch gross</th><th></th></tr></thead><tbody>'+rows+totRow+'</tbody></table></div>':'<div class="empty">No dispatchers yet. Add them on the Team page.</div>')+'</section>'+detail;
 }
 
@@ -5837,7 +5873,7 @@ var forms={
      ids.forEach(function(id){var l=getLoad(id);if(l)l.paidOn=inv.paidOn||'';});
     inv.adj=Number(dr.adjAmount)?{label:(dr.adjLabel||'').trim()||'Adjustment',amount:r2(Number(dr.adjAmount))}:null;
     inv.countOn=dr.countOn&&dr.countOn!==dr.issued?dr.countOn:'';
-    inv.note=dr.note.trim();inv.total=invTotal(inv);
+    inv.note=dr.note.trim();inv.total=invTotal(inv);syncNetFees();
     persist();render();viewInvoice(inv.id);toast('Invoice saved');
   },
   'pw':function(f){
