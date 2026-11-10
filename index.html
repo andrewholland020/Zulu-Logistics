@@ -3686,8 +3686,18 @@ function rankBy(list,keyFn){
 function topGrossDispatcher(list){
   return rankBy(list,function(l){return l.dispatcherId;}).sort(function(a,b){return b.fees-a.fees||b.n-a.n;})[0]||null;
 }
-function topSalesAgent(list){
-  return rankBy(list,function(l){return (getDrv(l.driverId)||{}).salesAgentId;}).sort(function(a,b){return b.n-a.n||b.fees-a.fees;})[0]||null;
+/* top sales agent: the one with the most Active drivers among the drivers they added in the period picked on
+   the Overview (e.g. 20 added this month, 5 of them Active = 5). Not by dispatch fees. */
+function topSalesAgent(r){
+  var m={};
+  db.drivers.forEach(function(d){
+    var k=d.salesAgentId;if(!k||!getEmp(k))return;
+    var day=dayOf(d.addedAt);if(r&&!(day&&day>=r.start&&day<=r.end))return;
+    var a=m[k]=m[k]||{id:k,active:0,total:0};
+    a.total++;if(drvStatus(d)==='Active')a.active++;
+  });
+  return Object.keys(m).map(function(k){return m[k];}).filter(function(a){return a.active>0;})
+    .sort(function(a,b){return b.active-a.active||b.total-a.total||String(nm(getEmp(a.id))).localeCompare(String(nm(getEmp(b.id))));})[0]||null;
 }
 function makeExpense(id,date,type,note,amount,currency,rate){
   var usd,rsv;
@@ -3898,7 +3908,7 @@ function pOverviewAdmin(asReport){
   db.loads.forEach(function(l){if(inRange(l.pickup,r)||inRange(l.delivery,r))act[l.driverId]=1;});
   var activeN=Object.keys(act).filter(function(id){return getDrv(id);}).length;
   var topD=topGrossDispatcher(sales);
-  var topS=topSalesAgent(sales);
+  var topS=topSalesAgent(r);
   var money_=function(a){return sumBy(a,function(i){return i.total;});};
 
   var controls=ovBar();
@@ -3938,7 +3948,7 @@ function pOverviewAdmin(asReport){
     statTile('Invoices paid',String(paid.length),money(money_(paid))+' · issued in this period and paid')+
     statTile('Pending invoices',String(pendAll.length),money(money_(pendAll))+' unpaid in total · '+plural(pend.length,'invoice')+' issued in this period'+(overdue?' · '+overdue+' overdue':''))+
     statTile('Top gross dispatcher',topD?nm(getEmp(topD.id)):'—',topD?money(topD.fees)+' dispatch gross on '+plural(topD.n,'load'):'no deliveries in this period')+
-    statTile('Top sales agent',topS?nm(getEmp(topS.id)):'—',topS?plural(topS.n,'active sale')+' from '+plural(topS.nd,'driver')+' · '+money(topS.fees)+' dispatch fees':'no deliveries in this period')+
+    statTile('Top sales agent',topS?nm(getEmp(topS.id)):'—',topS?plural(topS.active,'active driver')+' of '+plural(topS.total,'driver')+' added in this period':'no active drivers from drivers added in this period')+
   '</div>';};
   return head('Overview',r.label,controls)+ovStatsHtml()+todayPanel()+todaySalesPanel();
   function ovRevenueHtml(){return (session.role!=='admin'?'':'<section class="panel"><header><div><h2>Monthly dispatch revenue</h2><div class="muted small">Dispatch fees on loads delivered, '+esc(r.label)+'</div></div></header>'+
