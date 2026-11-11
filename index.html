@@ -887,7 +887,7 @@ function $(id){return document.getElementById(id);}
 
 /* ---------- data ---------- */
 var db=null, session=null, storageOk=true;
-var ui={page:'overview',status:'All',q:'',invFilter:'All',ym:TODAY.slice(0,7),reportYm:TODAY.slice(0,7),reportYear:TODAY.slice(0,4),dispDate:TODAY,drvPeriod:'Week',drvDate:TODAY,drvMonth:TODAY.slice(0,7),ovPeriod:'Week',ovDate:TODAY,ovMonth:TODAY.slice(0,7),ovYear:TODAY.slice(0,4),invQ:'',slipQ:'',rg:null,rgChip:'This Month',ov:null,ovChip:'This Week',drvQ:'',cusQ:'',dispQ:'',drFrom:'',drTo:'',drBy:'drop',drDisp:'',drvFrom:'',drvTo:'',payInvQ:'',payEmpQ:''};
+var ui={page:'overview',delColl:'loads',status:'All',q:'',invFilter:'All',ym:TODAY.slice(0,7),reportYm:TODAY.slice(0,7),reportYear:TODAY.slice(0,4),dispDate:TODAY,drvPeriod:'Week',drvDate:TODAY,drvMonth:TODAY.slice(0,7),ovPeriod:'Week',ovDate:TODAY,ovMonth:TODAY.slice(0,7),ovYear:TODAY.slice(0,4),invQ:'',slipQ:'',rg:null,rgChip:'This Month',ov:null,ovChip:'This Week',drvQ:'',cusQ:'',dispQ:'',drFrom:'',drTo:'',drBy:'drop',drDisp:'',drvFrom:'',drvTo:'',payInvQ:'',payEmpQ:''};
 
 /* ---------- shared database (Supabase) ---------- */
 var SB_URL='https://ppwhvoemfkuiwckudlhm.supabase.co';
@@ -938,8 +938,43 @@ function snapshot(){
   return m;
 }
 function setSave(){
+  var nf=Object.keys(failedKeys).length;
+  if(pending&&!pendingSince)pendingSince=Date.now();if(!pending)pendingSince=0;
+  unsavedBar(nf,pending);
   var el=$('saveState');if(!el)return;
-  el.textContent=pending?'Saving…':(Object.keys(failedKeys).length?'Not saved yet, retrying…':'All changes saved');el.style.color=Object.keys(failedKeys).length?'#ffb4a8':'';
+  el.textContent=pending?'Saving…':(nf?'Not saved yet, retrying…':'All changes saved');el.style.color=nf?'#ffb4a8':'';
+}
+/* a clear red bar across the top while something is not saved, so nobody closes the portal and loses a load */
+var pendingSince=0,unsavedT=null;
+function unsavedBar(nf,pend){
+  var bar=document.getElementById('unsavedBar');
+  if(!bar){bar=document.createElement('div');bar.id='unsavedBar';bar.setAttribute('role','alert');
+    bar.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9999;padding:10px 16px;font-weight:600;font-size:.9rem;text-align:center;display:none;box-shadow:0 2px 10px rgba(0,0,0,.25)';
+    document.body.appendChild(bar);}
+  var slow=pend&&pendingSince&&Date.now()-pendingSince>5000;
+  if(nf){bar.style.background='#c0392b';bar.style.color='#fff';bar.textContent=nf+(nf===1?' change is':' changes are')+' NOT saved yet. Do not close or refresh the portal; it keeps trying. Check your internet.';bar.style.display='block';}
+  else if(slow){bar.style.background='#e0a800';bar.style.color='#1d1d1d';bar.textContent='Saving… please wait before closing the portal.';bar.style.display='block';}
+  else bar.style.display='none';
+  clearTimeout(unsavedT);if(pend&&!nf)unsavedT=setTimeout(function(){unsavedBar(Object.keys(failedKeys).length,pending);},5200);
+}
+/* new records that have not reached the database yet are also kept on this device, so closing the tab,
+   a dead internet connection or a crash cannot lose a new load: they are saved again the next time the portal opens */
+function keepKey(){return session&&session.uid?'zuluKeep:'+session.uid:'';}
+function keepRead(){try{var k=keepKey();return k?JSON.parse(localStorage.getItem(k)||'{}')||{}:{};}catch(e){return {};}}
+function keepWrite(m){try{var k=keepKey();if(!k)return;if(Object.keys(m).length)localStorage.setItem(k,JSON.stringify(m));else localStorage.removeItem(k);}catch(e){}}
+function keepAdd(list){var m=keepRead();list.forEach(function(x){m[x.coll+'|'+x.id]={coll:x.coll,id:x.id,data:x.data,at:Date.now()};});keepWrite(m);}
+function keepDrop(keys){var m=keepRead(),ch=false;keys.forEach(function(k){if(m[k]){delete m[k];ch=true;}});if(ch)keepWrite(m);}
+/* after loading from the database: put back new records that never reached it (kept up to 7 days) */
+function keepRestore(have){
+  var m=keepRead(),back=0,ch=false;
+  Object.keys(m).forEach(function(k){
+    var x=m[k];
+    if(!x||Date.now()-x.at>7*864e5||have[k]){delete m[k];ch=true;return;}
+    if(COLLS.indexOf(x.coll)<0||!Array.isArray(db[x.coll]))return;
+    if(!db[x.coll].some(function(r){return r.id===x.id;})){db[x.coll].push(x.data);back++;}
+  });
+  if(ch)keepWrite(m);
+  return back;
 }
 /* ---------- saving ----------
    Changes are sent as a diff against what the database last confirmed (synced).
@@ -1005,14 +1040,19 @@ function persist(){
   if(!up.length&&!nDel)return;
   editGen++;
   up.forEach(function(x){var k=x.coll+'|'+x.id;prev[k]=synced[k];synced[k]=x.sig;mine[k]=x.sig;});
+  var fresh=up.filter(function(x){return prev[x.coll+'|'+x.id]===undefined&&COLLS.indexOf(x.coll)>-1;});if(fresh.length)keepAdd(fresh);
   Object.keys(del).forEach(function(c){del[c].forEach(function(id){var k=c+'|'+id;prev[k]=synced[k];delete synced[k];mine[k]=null;});});
   pending++;setSave();
   saveQ=saveQ.then(function(){return saveBatch(up,del);}).then(function(res){
     pending--;saveFails=0;saveErr='';
     Object.keys(mine).forEach(function(k){delete failedKeys[k];});
+    keepDrop(Object.keys(mine));
     if(res&&res.denied.length){
-      console.warn('Not allowed to save',res.denied);
-      if(Date.now()-deniedShown>60000){deniedShown=Date.now();toast('Some changes could not be saved because this login is not allowed to change them. Reloading the latest data.');}
+      console.warn('Not allowed to save',res.denied);keepDrop(res.denied);
+      var dl=res.denied.map(function(k){var c=k.split('|')[0],id=k.slice(c.length+1);var x=c==='loads'?getLoad(id):null;return x?'load '+(x.ref||id):c;});
+      deniedShown=Date.now();
+      var bar=document.getElementById('unsavedBar');if(bar){bar.style.background='#c0392b';bar.style.color='#fff';bar.textContent='NOT SAVED: '+dl.slice(0,3).join(', ')+(dl.length>3?' and '+(dl.length-3)+' more':'')+'. This login is not allowed to save it. Note it down and ask the admin.';bar.style.display='block';setTimeout(function(){if(!Object.keys(failedKeys).length&&!pending)bar.style.display='none';},15000);}
+      toast('Not saved: '+dl.slice(0,3).join(', ')+'. This login is not allowed to save it. Ask the admin.');
       setTimeout(function(){if(!hasUnsaved())refreshData(true);},1200);
     }
     setSave();notesSoon();
@@ -1086,6 +1126,7 @@ async function loadAll(bg){
   var rows=await fetchAll('records','coll,id,data,dispatcher_ids,updated_at');
   if(bg&&(g0!==editGen||hasUnsaved()))return false;
   var b=buildDb(rows);db=b.db;
+  var keptBack=keepRestore(b.have);
   var snap=snapshot();synced={};
   var dbIds={};rows.forEach(function(r){if(r.coll==='drivers')dbIds[r.coll+'|'+r.id]=JSON.stringify(r.data)+'|'+(r.dispatcher_ids||[]).slice().sort().join(',');});
   Object.keys(snap).forEach(function(k){if(b.have[k])synced[k]=dbIds[k]!==undefined?dbIds[k]:snap[k].sig;});
@@ -1095,7 +1136,10 @@ async function loadAll(bg){
     db.loads.forEach(function(l){var want='';if(l.status==='Paid'){var iv=l.invoiceId?getInv(l.invoiceId):null;want=iv&&iv.status==='Paid'&&iv.paidOn?String(iv.paidOn):(l.paidOn||'');}if((l.paidOn||'')!==want){l.paidOn=want;fixed++;}});
     fixed+=syncNetFees();
     if(fixed)setTimeout(persist,0);
-  }else{
+  }
+  if(keptBack){setTimeout(function(){persist();toast(keptBack+(keptBack===1?' new entry that had not been saved was':' new entries that had not been saved were')+' found on this device and saved now.');},300);
+  }
+  if(!(session.role==='admin'||session.role==='accountant')){
     /* dispatchers and sales agents cannot read payroll records: get the dispatch month dates */
     try{var dmr=await sb.rpc('zulu_dispatch_months');if(!dmr.error&&dmr.data&&typeof dmr.data==='object')db.dmonths=dmr.data;}catch(e){}
     /* the employee's own payroll payments (dates and which loads were paid), so My report counts exactly like payroll */
@@ -3017,8 +3061,9 @@ function openModal(html,wide){
 function closeModal(){var m=$('modal'),was=!m.hidden;m.hidden=true;m.innerHTML='';m.classList.remove('side');
   if(was&&!histPopping&&isMob()&&history.state&&history.state.z==='modal'){histSkip=true;try{history.back();}catch(e){}}}
 function confirmTwice(el,txt){
-  if(el.dataset.armed==='1')return true;
-  el.dataset.armed='1';el.dataset.orig=el.textContent;el.textContent=txt||'Click again to delete';
+  /* the second click only counts after a short pause, so a fast double-click never deletes anything */
+  if(el.dataset.armed==='1')return Date.now()-Number(el.dataset.armedAt||0)>900;
+  el.dataset.armed='1';el.dataset.armedAt=String(Date.now());el.dataset.orig=el.textContent;el.textContent=txt||'Click again to delete';
   setTimeout(function(){if(el.dataset.armed==='1'){el.dataset.armed='';el.textContent=el.dataset.orig;}},4500);
   return false;
 }
@@ -3150,6 +3195,7 @@ function render(){
   try{applyLook();}catch(e){}
   try{renderNow();}finally{renderBusy=false;}
   try{autoReadPage();}catch(e){}
+  try{if(ui.page==='loads'&&isOffice()&&$('delBody')){if(delRows===null)loadDeleted();else $('delBody').innerHTML=delBodyHtml();}}catch(e){}
   if(renderAgain){renderAgain=false;setTimeout(render,0);}
 }
 function renderNow(){
@@ -4097,7 +4143,7 @@ function loadsTableHtml(){
         (l.status==='In transit'?'<button class="btn sm" type="button" data-action="deliver-load" data-id="'+l.id+'">Mark delivered</button>':'')+
         (l.status==='Booked'?'<button class="btn sm" type="button" data-action="start-load" data-id="'+l.id+'">Start trip</button>':'')+
         '<button class="btn sm" type="button" data-action="edit-load" data-id="'+l.id+'">'+(locked?'View':'Edit')+'</button>'+
-        (canDelLoad(l)?'<button class="btn sm danger" type="button" data-action="delete-load" data-id="'+l.id+'">Delete</button>':''))+'</div></td>':'')+
+        (canDelLoad(l)?'<button class="btn sm danger" type="button" data-action="delete-load" data-id="'+l.id+'" style="margin-top:12px">Delete</button>':''))+'</div></td>':'')+
     '</tr>';}).join('')+'</tbody></table></div>';
 }
 function pLoads(){
@@ -4107,7 +4153,46 @@ function pLoads(){
   tlDispSelect()+
   '<input id="loadSearch" type="search" placeholder="Search load, city, driver" value="'+esc(ui.q)+'" aria-label="Search loads">'+
   (session.role!=='dispatcher'?'<input id="dispFilter" type="search" list="dispList" placeholder="Filter by dispatcher name" value="'+esc(ui.dispQ)+'" aria-label="Filter loads by dispatcher"><datalist id="dispList">'+staff('Dispatcher').map(function(e){return '<option value="'+esc(e.name)+'"></option>';}).join('')+'</datalist><button class="btn sm" type="button" data-action="clear-disp">Clear dispatcher</button>':'')+'</div>'+
-  '<div id="loadsBody">'+loadsTableHtml()+'</div></section>';
+  '<div id="loadsBody">'+loadsTableHtml()+'</div></section>'+
+  (isOffice()?'<section class="panel" id="delPanel"><header><h2>Deleted items</h2><span class="muted small">every load, invoice, driver or other record deleted from the portal is kept here, with who deleted it · admin and accountant only</span></header>'+
+    '<div class="toolbar"><select id="delColl" aria-label="Type of deleted item" style="width:auto;min-width:220px">'+DEL_TYPES.map(function(t){return '<option value="'+t[0]+'"'+(ui.delColl===t[0]?' selected':'')+'>'+t[1]+'</option>';}).join('')+'</select></div>'+
+    '<div id="delBody"><p class="muted small" style="padding:10px 14px">Loading…</p></div></section>':'');
+}
+function isOffice(){return !!session&&(session.role==='admin'||session.role==='accountant');}
+var DEL_TYPES=[['loads','Loads'],['invoices','Invoices'],['drivers','Drivers'],['customers','Brokers'],['expenses','Expenses'],['payruns','Payroll payments'],['payitems','Bonus / advance / deduction'],['','Everything']];
+var delRows=null,delErr='';
+function delWhat(r){
+  var d=r.data||{},c=r.coll;
+  if(c==='loads'){var dr=getDrv(d.driverId);return '<b>Load '+esc(d.ref||r.rec_id)+'</b> · '+esc((dr&&dr.name)||'—')+' · '+money(d.rate||0)+'<div class="muted small">'+esc(d.origin||'')+' → '+esc(d.dest||'')+(d.pickup?' · pickup '+fmtD(d.pickup):'')+' · '+esc(d.status||'')+'</div>';}
+  if(c==='invoices'){var dr2=getDrv(d.driverId);return '<b>Invoice '+esc(d.no||r.rec_id)+'</b> · '+esc((dr2&&dr2.name)||'—')+' · '+money(d.total||0);}
+  if(c==='drivers')return '<b>Driver '+esc(d.name||r.rec_id)+'</b>'+(d.mc?' · MC '+esc(d.mc):'');
+  if(c==='customers')return '<b>Broker '+esc(d.name||r.rec_id)+'</b>';
+  if(c==='expenses')return '<b>Expense</b> · '+esc(d.type||'')+' '+esc(d.note||'')+' · '+(d.currency==='Rs'?rs(d.amount||0):money(d.amount||0));
+  if(c==='payruns')return '<b>Payroll payment '+esc(lastNum(d.no)||'')+'</b> · '+esc(d.empName||'')+(d.from?' · '+fmtD(d.from)+' to '+fmtD(d.to):'');
+  if(c==='payitems')return '<b>'+esc(d.kind||'Pay entry')+'</b> · '+esc(d.note||'')+(d.amount?' · '+rs(d.amount):'');
+  return '<b>'+esc(c)+'</b> · '+esc(r.rec_id);
+}
+function delBodyHtml(){
+  if(delErr)return '<p class="muted small" style="padding:10px 14px">'+esc(delErr)+'</p>';
+  if(!delRows)return '<p class="muted small" style="padding:10px 14px">Loading…</p>';
+  var list=delRows.filter(function(r){return !ui.delColl||r.coll===ui.delColl;});
+  if(!list.length)return '<p class="muted small" style="padding:10px 14px">Nothing deleted yet.</p>';
+  return '<div class="tablewrap"><table style="min-width:760px"><thead><tr><th>Deleted</th><th>What</th><th>Deleted by</th><th></th></tr></thead><tbody>'+
+    list.map(function(r){
+      var t=new Date(r.deleted_at);
+      return '<tr><td style="white-space:nowrap">'+fmtD(r.deleted_at.slice(0,10))+'<div class="muted small">'+t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+'</div></td>'+
+        '<td>'+delWhat(r)+'</td><td>'+esc(r.deleted_by_name||(r.deleted_by?'(login removed)':'Database / system'))+'</td>'+
+        '<td>'+(r.restored_at?'<span class="pill p-paid">Restored</span>':'<button class="btn sm" type="button" data-action="restore-deleted" data-id="'+r.id+'">Restore</button>')+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+async function loadDeleted(){
+  if(!isOffice()||!$('delBody'))return;
+  try{
+    var r=await sb.from('deleted_records').select('id,coll,rec_id,data,deleted_at,deleted_by,deleted_by_name,restored_at').order('deleted_at',{ascending:false}).limit(300);
+    if(r.error){delErr=/does not exist|schema cache|relation/i.test(r.error.message||'')?'Run migration 2026-11m in Supabase to keep and restore deleted items.':('Could not load deleted items: '+r.error.message);delRows=[];}
+    else{delErr='';delRows=r.data||[];}
+  }catch(e){delErr='Could not load deleted items.';delRows=[];}
+  var b=$('delBody');if(b)b.innerHTML=delBodyHtml();
 }
 function statusChips(){
   return STATUSES.map(function(s){return '<button class="chip" type="button" data-action="filter" data-status="'+s+'" aria-pressed="'+(ui.status===s)+'">'+s+'</button>';}).join('');
@@ -5703,12 +5788,19 @@ var actions={
   'look-mode':function(el){try{localStorage.setItem('zuluMode',el.dataset.m);}catch(e){}applyLook();render();},
   'look-theme':function(el){if(session.role!=='admin')return;db.settings.theme=el.dataset.t;applyLook();persist();render();toast('Theme saved for everyone: '+(THEMES.filter(function(x){return x[0]===el.dataset.t;})[0]||['',''])[1]);},
   'deliver-load':function(el){var l=getLoad(el.dataset.id);if(!l||!myLoadRow(l))return;l.status='Delivered';l.deliveredOn=coToday();l.deliveredBy=session.name||session.email;persist();render();toast(l.ref+' delivered. It is ready to invoice.');},
+  'restore-deleted':async function(el){
+    if(!isOffice())return;if(!confirmTwice(el,'Click again to restore'))return;
+    el.disabled=true;
+    var r=await sb.rpc('zulu_restore_record',{p_id:Number(el.dataset.id)});
+    if(r.error){el.disabled=false;toast('Could not restore: '+r.error.message);return;}
+    toast('Restored. Reloading the latest data.');delRows=null;await refreshData(true);loadDeleted();
+  },
   'delete-load':function(el){
     var l=getLoad(el.dataset.id);if(!l||!canDelLoad(l))return;
     var locked=l.status==='Invoiced'||l.status==='Paid';
     if(!confirmTwice(el,locked?'On an invoice. Click again to delete':'Click again to delete'))return;
     if(locked)removeLoadFromInvoice(l);
-    db.loads=db.loads.filter(function(x){return x.id!==l.id;});persist();closeModal();render();toast('Load '+l.ref+' deleted');},
+    db.loads=db.loads.filter(function(x){return x.id!==l.id;});persist();closeModal();delRows=null;setTimeout(function(){if(ui.page==='loads')loadDeleted();},2500);render();toast('Load '+l.ref+' deleted'+(isOffice()?'':'. If this was a mistake, ask the admin to restore it.'));},
   'new-driver':function(){driverForm();},
   'edit-driver':function(el){driverForm(getDrv(el.dataset.id));},
   'delete-driver':function(el){
@@ -6233,6 +6325,7 @@ document.addEventListener('submit',function(e){
 document.addEventListener('change',function(e){
   var t=e.target;if(!t)return;
   if(isMonthSel(t)&&okMonth(t.value)){monthEverywhere(t.value);render();return;}
+  if(t.id==='delColl'){ui.delColl=t.value;var db0=$('delBody');if(db0)db0.innerHTML=delBodyHtml();return;}
   if(t.id==='f_driverId'){var dr=getDrv(t.value),ds=$('f_dispatcherId');if(dr&&dr.dispatcherId&&ds&&session.role!=='dispatcher')ds.value=dr.dispatcherId;return;}
   if(t.name==='role'){var w=$('whoWrap');if(w)w.hidden=t.value!=='dispatcher';return;}
   if(t.id==='payMonth'&&okMonth(t.value)){ui.ym=t.value;render();}
