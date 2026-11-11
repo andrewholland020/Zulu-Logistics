@@ -730,6 +730,9 @@ button.cmfile{font:inherit;text-align:left;cursor:pointer;width:100%}
   .chatattach{width:44px;height:44px}
   .fchip span{max-width:170px}
 }
+body.pdfcap .doc{border:0!important;box-shadow:none!important;background:#fff!important}
+body.pdfcap .doc .tablewrap{overflow:visible!important}
+body.pdfcap .doc table{min-width:0!important;width:100%}
 @media print{
   @page{margin:14mm}
   body.printing-doc{background:#fff}
@@ -2490,7 +2493,7 @@ function dovReportOpen(id,ym){
   var fname='Driver report - '+(d.name||'driver')+' - '+x.r.label;
   openModal(sheetHead('Driver report')+
     '<div class="toolbar" style="padding:0;border:0;gap:10px;flex-wrap:wrap"><label class="field" style="grid-template-columns:auto minmax(0,280px);align-items:center;gap:10px;margin:0"><span>Month</span>'+ymSelect('dovRptMonth',ym,' aria-label="Report month"')+'</label>'+
-      '<span style="flex:1"></span><button class="btn sm" type="button" data-action="dov-rpt-csv">Download Excel (CSV)</button><button class="btn sm primary" type="button" data-action="print-doc" data-name="'+esc(fname)+'">Print / Save as PDF</button></div>'+
+      '<span style="flex:1"></span><button class="btn sm" type="button" data-action="dov-rpt-csv">Download Excel (CSV)</button><button class="btn primary sm" type="button" data-action="pdf-doc" data-name="'+esc(fname)+'">Download PDF</button><button class="btn sm" type="button" data-action="print-doc" data-name="'+esc(fname)+'">Print</button></div>'+
     '<div class="doc"><div class="top"><div><div class="lbl">Driver monthly report</div><div class="no">'+esc(x.r.label)+'</div></div><div style="text-align:right"><b>'+esc(s0.company)+'</b><div class="addr muted small">'+esc(s0.address||'')+'</div></div></div>'+
       '<div class="meta">'+row('Driver name',esc(d.name||'—'))+row('Company name',esc(d.carrier||'—'))+row('MC','<span class="mono">'+esc(d.mc||'—')+'</span>')+
         row('Contact','<span style="overflow-wrap:anywhere">'+esc(d.phone||'—')+(d.email?'<br>'+esc(d.email):'')+'</span>')+'</div>'+
@@ -3664,8 +3667,11 @@ function monthEverywhere(ym){
   Object.keys(MSET).forEach(function(k){try{MSET[k](ym);}catch(e){}});
   ui.ovChip='Month';ui.ovYm=ym;ui.ov={from:mFrom(ym),to:mTo(ym)};
   ui.ym=ym;ui.reportYm=ym;ui.mrMode='Month';ui.salYm=ym;ui.tmP='Month';ui.tmYm=ym;
-  ui.slipYm=ym;ui.loadsYm=ym;ui.drvYm=ym;ui.invYm=ym;ui.moYm=ym;
+  ui.slipYm=ym;ui.loadsYm=ym;ui.drvYm=ym;ui.invYm=ym;ui.moYm=ym;ui.ovMonth=ym;
 }
+/* every Month dropdown in the portal: picking a month sets it for all sections of the page (and every other page) */
+var MONTH_SEL_IDS={payMonth:1,reportMonth:1,salMonth:1,moYm:1,ovMonth:1,tmYm:1,loadsYm:1,drvYm:1,invYm:1,slipYm:1};
+function isMonthSel(t){return !!t&&t.tagName==='SELECT'&&(MONTH_SEL_IDS[t.id]||(t.dataset&&t.dataset.ymk));}
 function ovBar(){
   var c=ovCurrent();
   return '<div class="ovbar"><div class="chips">'+['Today','Yesterday','This Week','This Month','Last Month','Custom Range'].map(function(n){
@@ -3688,6 +3694,39 @@ function topGrossDispatcher(list){
 }
 /* top sales agent: the one with the most Active drivers among the drivers they added in the period picked on
    the Overview (e.g. 20 added this month, 5 of them Active = 5). Not by dispatch fees. */
+/* Download PDF: makes a real .pdf file of the open document (invoice, payslip, report) and downloads it.
+   Works on phones, the installed app and browsers where the print window does not open.
+   If the PDF maker cannot load (no internet), it falls back to the normal print window. */
+var PDF_LIB='https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js',pdfLibP=null;
+function loadPdfLib(){
+  if(window.html2pdf)return Promise.resolve();
+  if(pdfLibP)return pdfLibP;
+  pdfLibP=new Promise(function(ok,no){var sc=document.createElement('script');sc.src=PDF_LIB;sc.onload=function(){ok();};sc.onerror=function(){pdfLibP=null;no(new Error('pdf library'));};document.head.appendChild(sc);});
+  return pdfLibP;
+}
+function downloadDocPdf(btn){
+  var box=btn.closest('.sheet')||document.getElementById('modal')||document;
+  var doc=box.querySelector('.doc');if(!doc){toast('Nothing to download.');return;}
+  var name=String(btn.dataset.name||baseTitle).replace(/[\\\/:*?"<>|]+/g,'-').trim()||'ZULU document';
+  var html=document.documentElement,mode=html.getAttribute('data-mode'),label=btn.textContent;
+  btn.disabled=true;btn.textContent='Making PDF…';
+  loadPdfLib().then(function(){
+    if(mode==='dark')html.removeAttribute('data-mode');
+    document.body.classList.add('pdfcap');
+    return window.html2pdf().set({
+      margin:[10,10,12,10],filename:name+'.pdf',
+      image:{type:'jpeg',quality:0.96},
+      html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+      pagebreak:{mode:['css','legacy'],before:'.pb',avoid:['tr','.totals','.foot']}
+    }).from(doc).save();
+  }).then(function(){toast('PDF downloaded: '+name+'.pdf');}).catch(function(){
+    document.title=name;document.body.classList.add('printing-doc');setTimeout(function(){window.print();},60);
+  }).then(function(){
+    document.body.classList.remove('pdfcap');if(mode==='dark')html.setAttribute('data-mode','dark');
+    btn.disabled=false;btn.textContent=label;
+  });
+}
 function topSalesAgent(r){
   var m={};
   db.drivers.forEach(function(d){
@@ -3888,7 +3927,7 @@ function moReport(){
   '</div>';
   var fname='Monthly report '+(per.mode==='month'?per.label:per.from+' to '+per.to);
   openModal(sheetHead('Monthly report · '+per.label)+
-    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="close-modal">Close</button><button class="btn primary" type="button" data-action="print-doc" data-name="'+esc(fname)+'">Print / Save as PDF</button></div>'+doc,true);
+    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="close-modal">Close</button><button class="btn primary" type="button" data-action="pdf-doc" data-name="'+esc(fname)+'">Download PDF</button><button class="btn" type="button" data-action="print-doc" data-name="'+esc(fname)+'">Print</button></div>'+doc,true);
 }
 /* Monthly Report page (admin): monthly overview with graph and print, paid invoices, and the activity / revenue / expenses sections */
 function pMonthlyReport(){
@@ -4427,7 +4466,7 @@ function invoiceDoc(inv){
     '</tbody></table></div>'+
     (invAdj(inv)?'<div class="totals" style="margin-bottom:0"><div><span><b>Adjustment</b>'+(invAdj(inv).label&&invAdj(inv).label!=='Adjustment'?' · '+esc(invAdj(inv).label):'')+'</span><span>'+(invAdj(inv).amount<0?'−'+money(-invAdj(inv).amount):'+'+money(invAdj(inv).amount))+'</span></div></div>':'')+
     '<div class="totals"><div><span>Loads</span><span>'+ls.length+'</span></div><div><span>Miles</span><span>'+NUM.format(miles)+'</span></div><div><span>Load rates (for reference)</span><span>'+money(rate)+'</span></div><div class="grand"><span>Dispatch fee due</span><span>'+money(inv.total)+'</span></div></div>'+
-    (inv.note?'<div class="foot" style="white-space:pre-wrap"><b>Note:</b> '+esc(inv.note)+'</div>':'')+
+    (inv.note?'<div class="invnote" style="white-space:pre-wrap;background:#fff4c2;border:1px solid #f0d36b;border-left:4px solid #e0a800;border-radius:8px;padding:10px 12px;color:#4a3800;margin:4px 0"><b>Note:</b> '+esc(inv.note)+'</div>':'')+
     '<div class="foot">Issued by '+esc(s.company)+' to '+esc(nm(d,'carrier'))+'\n'+esc(s.payInstr)+'</div></div>';
 }
 function invoiceText(inv){
@@ -4458,7 +4497,7 @@ function viewInvoice(id){
     '<div class="actions"><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="to">Copy email address</button><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="subject">Copy subject</button><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="body">Copy message</button></div></div>';
   openModal(sheetHead('Invoice '+inv.no)+invoiceDoc(inv)+mail+
     '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="copy-invoice" data-id="'+inv.id+'">Copy invoice as text</button>'+
-    '<button class="btn" type="button" data-action="print-doc" data-name="'+esc('Invoice '+inv.no+' - '+nm(d))+'">Export PDF</button>'+
+    '<button class="btn" type="button" data-action="pdf-doc" data-name="'+esc('Invoice '+inv.no+' - '+nm(d))+'">Download PDF</button><button class="btn" type="button" data-action="print-doc" data-name="'+esc('Invoice '+inv.no+' - '+nm(d))+'">Print</button>'+
     (canEdit?'<button class="btn danger" type="button" data-action="delete-invoice" data-id="'+inv.id+'">Delete invoice</button><button class="btn" type="button" data-action="edit-invoice" data-id="'+inv.id+'">Edit invoice</button>'+(inv.status==='Paid'?'<button class="btn" type="button" data-action="unpay-invoice" data-id="'+inv.id+'">Mark unpaid</button>':'<button class="btn primary" type="button" data-action="pay-invoice" data-id="'+inv.id+'">Mark as paid</button>'):'')+
     '</div>',true);
 }
@@ -4657,12 +4696,20 @@ function payRecRow(x,mine){
     '<td><div class="rowact"><button class="btn sm" type="button" data-action="'+(slip?'view-slip':'view-run')+'" data-id="'+p.id+'">View</button>'+
     (!mine&&can('payroll')?'<button class="btn sm danger" type="button" data-action="'+(slip?'delete-slip':'delete-run')+'" data-id="'+p.id+'">Delete</button>':'')+'</div></td></tr>';
 }
+/* the payroll month a payment belongs to: the dispatch month its period covers (the middle of its dates),
+   not the day it was issued. October's payroll issued on Nov 3 belongs to October. */
+function payMonth(p){
+  if(p.ym)return p.ym;
+  var a=String(p.from||''),b=String(p.to||'');if(!okDate(a)||!okDate(b))return okDate(a)?ymOfDate(a):'';
+  var t=(Date.parse(a+'T12:00:00Z')+Date.parse(b+'T12:00:00Z'))/2;
+  return ymOfDate(new Date(t).toISOString().slice(0,10));
+}
 function slipListHtml(){
   var q=ui.slipQ.trim().toLowerCase();
   var sy=ui.slipYm||'',sr=sy?mRange(sy):null;
   var list=payRecords(function(p){
-    /* a month: monthly payslips for that month, and custom-period payments whose dates overlap it */
-    if(sy&&!(p.ym?p.ym===sy:(String(p.from||'')<=sr.to&&String(p.to||'')>=sr.from)))return false;
+    /* a month: the payments for that payroll month (by the dates they cover, not the day they were issued) */
+    if(sy&&payMonth(p)!==sy)return false;
     if(!q)return true;var e=empOf(p);
     return [p.no,e.name,e.title,p.ym||'',p.ym?ymLabel(p.ym):'',p.from||'',p.to||'',p.manual?'edited':'',p.ym?'monthly':'custom period'].join(' ').toLowerCase().indexOf(q)>-1;});
   if(!list.length)return '<div class="empty">'+(q?'No payslips match your search'+(sy?' in '+esc(dmLabel(sy)):'')+'.':sy?'No payslips issued for '+esc(dmLabel(sy))+'.':'No payslips issued yet.')+'</div>';
@@ -4929,11 +4976,9 @@ function basePaidIn(empId,ym,from,to){
   return pr?(payNo(pr)?'payment '+payNo(pr):'an earlier payment'):'';
 }
 function empOf(p){return getEmp(p.empId)||{name:p.empName||'(removed)',title:p.empTitle||''};}
-/* payroll payment number as shown: digits only (13), and only on dispatchers' payments; sales and others show none */
+/* payroll payment number as shown: digits only (13), on every employee's payment */
 function payNo(p){
   if(!p)return '';
-  var t=p.empTitle||((getEmp(p.empId)||{}).title)||(session&&session.role==='dispatcher'&&p.empId===session.empId?'Dispatcher':'');
-  if(t!=='Dispatcher')return '';
   var n=lastNum(p.no);return n?String(n):'';
 }
 function runOverlap(empId,from,to,ignoreId){
@@ -4999,15 +5044,16 @@ function rangePanelHtml(){
     (t.missing?'<div class="muted small" style="padding:0 16px 8px;color:var(--warn)">'+plural(t.missing,'employee')+' have loads in a month with no exchange rate saved, so commission cannot be worked out yet. Save the rate for that month in Exchange rate above.</div>':'')+
     t.html+'</section>';
 }
-function rgLinesHtml(c){
+function rgLinesHtml(c,doc){
   var rows='<tr><td>Base pay</td><td class="muted">'+esc(c.baseNote)+'</td><td class="num">'+rs(c.base)+'</td></tr>';
   if(c.comRows.length)c.comRows.forEach(function(x){rows+='<tr><td>Commission '+esc(ymLabel(x.ym))+'</td><td class="muted">'+x.pct+'% of '+money(x.fees)+' dispatch fees'+(x.rate!=null?' at Rs '+NUM.format(x.rate)+' per $1':'')+'</td><td class="num">'+(x.rs==null?'No rate':rs(x.rs))+'</td></tr>';});
   else rows+='<tr><td>Commission</td><td class="muted">No delivered loads in this period</td><td class="num">'+rs(0)+'</td></tr>';
-  rows+='<tr><td>Bonus</td><td class="muted">Bonuses dated in this period</td><td class="num">'+(c.bonus?rs(c.bonus):'—')+'</td></tr>'+
-    '<tr><td><b>Gross pay</b></td><td></td><td class="num"><b>'+rs(c.gross)+'</b></td></tr>'+
-    '<tr><td>Advances</td><td class="muted">Taken from the company</td><td class="num">'+(c.advance?'−Rs '+NUM.format(c.advance):'—')+'</td></tr>'+
-    '<tr><td>Fines</td><td class="muted">From monthly entries for months fully inside the period</td><td class="num">'+(c.fines?'−Rs '+NUM.format(c.fines):'—')+'</td></tr>'+
-    '<tr><td>Deductions</td><td class="muted">Deductions dated in this period</td><td class="num">'+(c.deductions?'−Rs '+NUM.format(c.deductions):'—')+'</td></tr>';
+  /* on the payslip document (screen, print and PDF) bonus, advances, fines and deductions show only when there are any */
+  if(!doc||c.bonus)rows+='<tr><td>Bonus</td><td class="muted">Bonuses dated in this period</td><td class="num">'+(c.bonus?rs(c.bonus):'—')+'</td></tr>';
+  rows+='<tr><td><b>Gross pay</b></td><td></td><td class="num"><b>'+rs(c.gross)+'</b></td></tr>';
+  if(!doc||c.advance)rows+='<tr><td>Advances</td><td class="muted">Taken from the company</td><td class="num">'+(c.advance?'−Rs '+NUM.format(c.advance):'—')+'</td></tr>';
+  if(!doc||c.fines)rows+='<tr><td>Fines</td><td class="muted">From monthly entries for months fully inside the period</td><td class="num">'+(c.fines?'−Rs '+NUM.format(c.fines):'—')+'</td></tr>';
+  if(!doc||c.deductions)rows+='<tr><td>Deductions</td><td class="muted">Deductions dated in this period</td><td class="num">'+(c.deductions?'−Rs '+NUM.format(c.deductions):'—')+'</td></tr>';
   return rows;
 }
 function rgDetail(empId){
@@ -5049,13 +5095,26 @@ function runDoc(p){
   var e=empOf(p),s=db.settings,c=Object.assign({},p);
   return '<div class="doc"><div class="top"><div><div class="lbl">Payslip · custom period</div><div class="no">'+fmtD(p.from)+' to '+fmtD(p.to)+'</div></div><div style="text-align:right"><b>'+esc(s.company)+'</b><div class="addr muted small">'+esc(s.address)+'</div></div></div>'+
   '<div class="meta"><div><b>Employee</b><span>'+esc(nm(e))+'</span><span class="muted small">'+esc(e?e.title:'')+' · '+esc(p.basis)+'</span></div>'+(payNo(p)?'<div><b>Payment number</b><span class="mono">'+esc(payNo(p))+'</span></div>':'')+'<div><b>Issued</b><span>'+fmtD(p.issued)+'</span></div></div>'+
-  '<div class="tablewrap"><table style="min-width:460px"><thead><tr><th>Item</th><th>Basis</th><th class="num">Amount</th></tr></thead><tbody>'+rgLinesHtml(c)+'</tbody></table></div>'+
-  '<div class="totals"><div class="grand"><span>Net pay</span><span>'+rs(p.net)+'</span></div></div></div>';
+  '<div class="tablewrap"><table style="min-width:460px"><thead><tr><th>Item</th><th>Basis</th><th class="num">Amount</th></tr></thead><tbody>'+rgLinesHtml(c,true)+'</tbody></table></div>'+
+  '<div class="totals"><div class="grand"><span>Net pay</span><span>'+rs(p.net)+'</span></div></div>'+runInvoicesHtml(p)+'</div>';
+}
+/* invoice numbers of the loads this payment's commission was paid on (only invoices this login can see) */
+function runInvoicesHtml(p){
+  var seen={},nos=[];
+  (p.comLoadIds||[]).forEach(function(id){
+    var l=getLoad(id);if(!l)return;
+    var iv=l.invoiceId?getInv(l.invoiceId):null;
+    if(!iv||(iv.loadIds||[]).indexOf(l.id)<0)iv=db.invoices.find(function(i){return (i.loadIds||[]).indexOf(l.id)>-1;})||null;
+    if(iv&&!seen[iv.id]){seen[iv.id]=1;nos.push(iv.no);}
+  });
+  if(!nos.length)return '';
+  nos.sort(function(a,b){return lastNum(a)-lastNum(b);});
+  return '<div class="foot"><b>Commission invoices ('+nos.length+'):</b> '+nos.map(esc).join(', ')+'</div>';
 }
 function viewRun(id){
   var p=db.payruns.find(function(x){return x.id===id;});if(!p||!canSeePay(p))return;
   openModal(sheetHead('Payment'+(payNo(p)?' '+payNo(p):''))+runDoc(p)+
-    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="print-doc" data-name="'+esc('Payslip '+(payNo(p)?payNo(p)+' ':'')+'- '+nm(empOf(p)))+'">Export PDF</button>'+
+    '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="pdf-doc" data-name="'+esc('Payslip '+(payNo(p)?payNo(p)+' ':'')+'- '+nm(empOf(p)))+'">Download PDF</button><button class="btn" type="button" data-action="print-doc" data-name="'+esc('Payslip '+(payNo(p)?payNo(p)+' ':'')+'- '+nm(empOf(p)))+'">Print</button>'+
     (can('payroll')?'<button class="btn danger" type="button" data-action="delete-run" data-id="'+p.id+'">Delete payment</button>':'')+'</div>',true);
 }
 
@@ -5766,6 +5825,7 @@ var actions={
     if(runOverlap(it.empId,it.date,it.date)){toast('That period is already paid.');return;}
     if(!confirmTwice(el,'Click again to delete'))return;
     db.payitems=db.payitems.filter(function(x){return x.id!==it.id;});persist();render();rgDetail(it.empId);},
+  'pdf-doc':function(el){downloadDocPdf(el);},
   'print-doc':function(el){
     document.title=String(el.dataset.name||baseTitle).replace(/[\\\/:*?"<>|]+/g,'-');
     document.body.classList.add('printing-doc');
@@ -5812,7 +5872,7 @@ function openSlip(id){
   var p=db.payslips.find(function(x){return x.id===id;});if(!p||!canSeePay(p))return;
   openModal(sheetHead('Payslip '+p.no)+slipDoc(p)+
     '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="copy-slip" data-id="'+p.id+'">Copy as text</button>'+
-    '<button class="btn" type="button" data-action="print-doc" data-name="'+esc('Payslip '+p.no+' - '+nm(empOf(p)))+'">Export PDF</button>'+
+    '<button class="btn" type="button" data-action="pdf-doc" data-name="'+esc('Payslip '+p.no+' - '+nm(empOf(p)))+'">Download PDF</button><button class="btn" type="button" data-action="print-doc" data-name="'+esc('Payslip '+p.no+' - '+nm(empOf(p)))+'">Print</button>'+
     (can('payroll')?'<button class="btn danger" type="button" data-action="delete-slip" data-id="'+p.id+'">Delete payslip</button><button class="btn primary" type="button" data-action="edit-slip" data-id="'+p.id+'">Edit payslip</button>':'')+'</div>',true);
 }
 
@@ -6158,6 +6218,7 @@ document.addEventListener('submit',function(e){
 });
 document.addEventListener('change',function(e){
   var t=e.target;if(!t)return;
+  if(isMonthSel(t)&&okMonth(t.value)){monthEverywhere(t.value);render();return;}
   if(t.id==='f_driverId'){var dr=getDrv(t.value),ds=$('f_dispatcherId');if(dr&&dr.dispatcherId&&ds&&session.role!=='dispatcher')ds.value=dr.dispatcherId;return;}
   if(t.name==='role'){var w=$('whoWrap');if(w)w.hidden=t.value!=='dispatcher';return;}
   if(t.id==='payMonth'&&okMonth(t.value)){ui.ym=t.value;render();}
