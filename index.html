@@ -339,7 +339,7 @@ tr.rowlink{cursor:pointer}
 .mailhd span{display:inline-block;min-width:62px;color:var(--muted)}
 .mailtxt{padding:12px;white-space:pre-wrap;font-size:14px;line-height:1.55;overflow-x:auto}
 .mailatt{margin:0 12px 12px;display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:13px}
-mark.mfill{background:#fff4c2;color:#4a3800;border-radius:4px;padding:0 3px}
+mark.mfill{background:transparent;color:inherit;border-bottom:2px dotted var(--accent);padding:0}
 .mailtxt .mhl{background:#ffe066;color:#111;font-weight:800;font-size:16px;padding:2px 6px;border-radius:4px}
 .mailtxt .mhl mark.mfill{background:transparent;padding:0;color:inherit}
 .mailtbl{border-collapse:collapse;font-size:13px;margin:4px 0;white-space:normal}
@@ -5818,7 +5818,7 @@ function invSendPreview(id,warn){
     (w?'<div class="banner" style="margin-bottom:12px"><span>'+esc(w)+'</span></div>':'')+
     (d.email?'':'<div class="banner" style="margin-bottom:12px"><span>This driver has no email saved. Add it in the driver\'s details first.</span></div>')+
     invMailPreview(inv,true)+
-    '<p class="muted small" style="margin:8px 0 0">Yellow is filled in from this invoice. The driver sees normal text. Change the wording in Settings → Invoice email.</p>'+
+    '<p class="muted small" style="margin:8px 0 0">Dotted underline = filled in from this invoice (the driver does not see the underline). Yellow = highlighted in the driver\'s email. Change the wording in Settings → Invoice email.</p>'+
     '<div class="actions" style="justify-content:flex-end;margin-top:14px"><button class="btn" type="button" data-action="inv-send-back" data-id="'+inv.id+'">Cancel</button>'+
     (d.email?'<button class="btn primary" type="button" data-action="inv-send-go" data-id="'+inv.id+'"'+(w?' data-resend="1"':'')+'>'+(w?'Yes, send again':'Send email')+'</button>':'')+'</div>',true);
 }
@@ -5870,7 +5870,7 @@ function invoiceEmailPanel(){
       '<div class="iecard"><b>Send a test</b><div class="muted small">Sends '+(last?'invoice '+esc(last.no):'the newest invoice')+' to this address only, with [TEST] in the subject. Nothing is recorded on the invoice.</div>'+
         '<div class="actions" style="margin-top:8px"><input id="ieTest" type="email" value="'+esc(session.email||'')+'" style="flex:1 1 220px;min-width:0"><button class="btn" type="button" data-action="ie-test"'+(last?'':' disabled')+'>Send test</button></div></div>'+
       (invMailsErr==='missing'?'<div class="banner" style="margin-top:10px"><span>Run the SQL file migration_2026_11n_invoice_emails.sql in Supabase, so the portal can record which invoices were emailed.</span></div>':'')+
-    '</div><div><div class="muted small" style="margin-bottom:6px">Preview'+(last?' with invoice '+esc(last.no):'')+'</div><div id="iePrev">'+(last?invMailPreview(last,true):'<p class="muted">No invoices yet.</p>')+'</div></div></div></div></section>';
+    '</div><div><div class="muted small" style="margin-bottom:6px">Preview'+(last?' with invoice '+esc(last.no):'')+'. Yellow lines are highlighted in the driver\'s email; dotted underline is filled in from the invoice.</div><div id="iePrev">'+(last?invMailPreview(last,true):'<p class="muted">No invoices yet.</p>')+'</div></div></div></div></section>';
 }
 function ieForm(){return {subject:$('ieSubj').value.trim(),body:$('ieBody').value,pdf:$('iePdf').checked,cc:$('ieCc').checked,ccDisp:$('ieCcDisp').checked};}
 function iePrevUpdate(){
