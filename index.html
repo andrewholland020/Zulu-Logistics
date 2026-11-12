@@ -345,6 +345,16 @@ mark.mfill{background:transparent;color:inherit;border-bottom:2px dotted var(--a
 .mailtbl{border-collapse:collapse;font-size:13px;margin:4px 0;white-space:normal}
 .mailtbl td,.mailtbl th{border:1px solid var(--line);padding:4px 8px;text-align:left}
 .mailtbl .num{text-align:right}
+.dptools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+.dptools .chips{display:flex;gap:6px;flex-wrap:wrap}
+.dpn{display:inline-block;border-radius:999px;padding:0 7px;font-size:11.5px;background:rgba(127,127,127,.18);margin-left:4px}
+.dpm{display:inline-flex;gap:6px;align-items:center;font-weight:700}
+.dpi{width:20px;height:20px;border-radius:6px;display:inline-grid;place-items:center;color:#fff;font-size:11px;font-weight:800}
+.dpi.zel{background:#6d1ed4}.dpi.cas{background:#00c244}
+.dprow{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px}
+.dprow span{color:var(--muted)}
+.dptbl .mono,.dptbl td:nth-child(5){white-space:nowrap}
+.dptools input[type=search]{flex:0 1 260px}
 .mpaybtn{display:inline-block;background:#f28c28;color:#fff;font-weight:800;padding:5px 14px;border-radius:8px}
 .doc .paybox{display:flex;gap:14px;align-items:center;border:2px solid #f28c28;border-radius:12px;padding:12px 14px;background:rgba(242,140,40,.06)}
 .doc .qrbox{flex:none;width:96px;height:96px;display:grid;place-items:center;background:#fff;border-radius:6px}
@@ -2294,6 +2304,7 @@ var ICONS={
   driverov:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="11" r="2"/><path d="M5.5 16c.6-1.5 1.7-2.3 3-2.3s2.4.8 3 2.3M14 10h4M14 14h4"/>',
   customers:'<path d="M4 21V5.5L12 3v18M12 8h8v13M3 21h18M7.5 8h1M7.5 12h1M7.5 16h1M15.5 12h1M15.5 16h1"/>',
   invoices:'<path d="M6 3h9l4 4v14H6z"/><path d="M14.5 3v4.5H19M9 12h7M9 16h5"/>',
+  payments:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/><path d="M16 15l1.5 1.5L20 14"/>',
   payroll:'<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M15.5 15h2.5"/>',
   mypay:'<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6.5 9.5v.01M17.5 14.5v.01"/>',
   team:'<circle cx="12" cy="7.5" r="3.3"/><path d="M5 21c0-3.9 3.1-7 7-7s7 3.1 7 7"/>',
@@ -2329,7 +2340,7 @@ function mMenuHtml(){
     '<button class="mib" type="button" data-action="m-menu-close" aria-label="Close menu">'+mIcon('close')+'</button></div>'+
     '<div id="mMenuNudge">'+deskNudgeHtml()+'</div>'+
     '<div class="mlist">'+pages.map(function(p){
-      return '<button class="mitem" type="button" data-action="nav" data-page="'+p+'"'+(p===ui.page?' aria-current="page"':'')+'>'+mIcon(p)+'<span class="l">'+esc(LABELS[p])+'</span>'+(p==='inbox'?'<span class="js-inbox-badge">'+mInboxBadge()+'</span>':'')+'</button>';
+      return '<button class="mitem" type="button" data-action="nav" data-page="'+p+'"'+(p===ui.page?' aria-current="page"':'')+'>'+mIcon(p)+'<span class="l">'+esc(LABELS[p])+'</span>'+(p==='inbox'?'<span class="js-inbox-badge">'+mInboxBadge()+'</span>':'')+(p==='payments'?'<span class="js-pay-badge">'+payBadge()+'</span>':'')+'</button>';
     }).join('')+
     '<div class="msep"></div><div style="padding:6px 14px">'+modeToggleHtml()+'</div><button class="mitem" type="button" data-action="m-notes">'+mIcon('bell')+'<span class="l">Notifications</span><span class="js-bell-badge">'+(n?'<span class="badge">'+n+'</span>':'')+'</span></button>'+
     '<button class="mitem out" type="button" data-action="logout">'+mIcon('out')+'<span class="l">Sign out</span></button></div></div></div>';
@@ -3240,12 +3251,12 @@ function invStatus(inv){if(inv.status==='Sent'&&inv.due<TODAY)return 'Overdue';r
 
 /* ---------- permissions ---------- */
 var ROLES={
-  admin:{label:'Admin',pages:['overview','mreport','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
-  accountant:{label:'Accountant',pages:['overview','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payroll','team','settings','account']},
+  admin:{label:'Admin',pages:['overview','mreport','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','account']},
+  accountant:{label:'Accountant',pages:['overview','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','account']},
   dispatcher:{label:'Dispatcher',pages:['overview','myteam','inbox','myreport','loads','invoices','driverov','customers','mypay','account']},
   sales:{label:'Sales agent',pages:['salesdash','inbox','followups','dailyreport','myreport','mypay','account']}
 };
-var LABELS={teams:'Dispatch teams',myteam:'My team',mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
+var LABELS={payments:'Driver payments',teams:'Dispatch teams',myteam:'My team',mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
 function canSetPw(kind){
   var r=session&&session.role;
   if(r==='admin')return true;
@@ -3440,7 +3451,7 @@ function renderNow(){
   '<div class="app"><aside class="rail">'+
     '<div class="plate"><b>'+esc(db.settings.company)+'</b><span>'+(session.role==='sales'?'Sales portal':'Dispatch portal')+'</span></div>'+
     '<nav aria-label="Sections">'+pages.map(function(p){
-      return '<button type="button" data-action="nav" data-page="'+p+'"'+(p===ui.page?' aria-current="page"':'')+'><span class="nicon" aria-hidden="true">'+mIcon(p)+'</span>'+LABELS[p]+(p==='inbox'?'<span id="navInboxBadge">'+inboxBadge()+'</span>':'')+'</button>';}).join('')+'</nav>'+
+      return '<button type="button" data-action="nav" data-page="'+p+'"'+(p===ui.page?' aria-current="page"':'')+'><span class="nicon" aria-hidden="true">'+mIcon(p)+'</span>'+LABELS[p]+(p==='inbox'?'<span id="navInboxBadge">'+inboxBadge()+'</span>':'')+(p==='payments'?'<span class="js-pay-badge">'+payBadge()+'</span>':'')+'</button>';}).join('')+'</nav>'+
     '<div class="who">'+modeToggleHtml()+'<span id="bellWrap">'+bellHtml()+deskNudgeHtml()+'</span><span class="small muted">Signed in as <b style="color:#fff">'+esc(session.name||ROLES[session.role].label)+'</b> · '+ROLES[session.role].label+'</span><span class="small muted" id="saveState">All changes saved</span>'+
     '<button class="btn sm" type="button" data-action="logout">Sign out</button></div>'+
   '</aside>'+mTopHtml()+'<main class="main">'+
@@ -3452,7 +3463,9 @@ function renderNow(){
   mAfterRender();
   if(ui.page==='loads')bindLoadsFilter();
   if(ui.page==='settings'&&session.role==='admin')loadHealth();
-  if(ui.page==='invoices'||ui.page==='settings'){loadInvMails();loadPayClaims();}
+  if(ui.page==='invoices'||ui.page==='settings'||ui.page==='payments')loadInvMails();
+  if(isOffice())loadPayClaims();
+  if(ui.page==='payments'){var dq=$('dpQ');if(dq)dq.addEventListener('input',function(){ui.dpQ=dq.value;var pos=dq.selectionStart;render();var n=$('dpQ');if(n){n.focus();try{n.setSelectionRange(pos,pos);}catch(x){}}});var dy=$('dpYm');if(dy)dy.addEventListener('change',function(){ui.dpYm=dy.value;render();});}
   if(ui.page==='settings'){var ieb=$('ieBody');if(ieb)['keyup','click','select','blur','input'].forEach(function(ev){ieb.addEventListener(ev,function(){ieb.dataset.pos=ieb.selectionStart;ieb.dataset.end=ieb.selectionEnd;});});['ieSubj','ieBody'].forEach(function(k){var e=$(k);if(e)e.addEventListener('input',iePrevUpdate);});['iePdf','ieCc','ieCcDisp'].forEach(function(k){var e=$(k);if(e)e.addEventListener('change',iePrevUpdate);});}
   if(ui.page==='inbox')afterInbox();
   if(ui.page==='salesdaily'){var sd=$('sdAgentSel');if(sd)sd.addEventListener('change',function(){ui.sdAgent=sd.value;render();});}
@@ -3491,6 +3504,7 @@ function pageHtml(){
     case 'drivers':return pDrivers();
     case 'customers':return pCustomers();
     case 'invoices':return pInvoices();
+    case 'payments':return pPayments();
     case 'payroll':return pPayroll();
     case 'team':return pTeam();
     case 'settings':return pSettings();
@@ -5903,7 +5917,7 @@ function invoiceEmailPanel(){
       '<div class="iecard"><b>Send a test</b><div class="muted small">Sends '+(last?'invoice '+esc(last.no):'the newest invoice')+' to this address only, with [TEST] in the subject. Nothing is recorded on the invoice.</div>'+
         '<div class="actions" style="margin-top:8px"><input id="ieTest" type="email" value="'+esc(session.email||'')+'" style="flex:1 1 220px;min-width:0"><button class="btn" type="button" data-action="ie-test"'+(last?'':' disabled')+'>Send test</button></div></div>'+
       (invMailsErr==='missing'?'<div class="banner" style="margin-top:10px"><span>Run the SQL file migration_2026_11n_invoice_emails.sql in Supabase, so the portal can record which invoices were emailed.</span></div>':'')+
-    '</div><div><div class="muted small" style="margin-bottom:6px">Preview'+(last?' with invoice '+esc(last.no):'')+'. Yellow lines are highlighted in the driver\'s email; dotted underline is filled in from the invoice.</div><div id="iePrev">'+(last?invMailPreview(last,true):'<p class="muted">No invoices yet.</p>')+'</div></div></div></div></section>';
+    '</div><div><div class="muted small" style="margin-bottom:6px">Preview'+(last?' with invoice '+esc(last.no):'')+'. Yellow lines are highlighted in the driver\'s email; dotted underline is filled in from the invoice.</div><div id="iePrev">'+(last?invMailPreview(last,true):'<p class="muted">No invoices yet.</p>')+'</div></div></div>'+payEmailsPanelHtml()+'</div></section>';
 }
 function ieForm(){return {subject:$('ieSubj').value.trim(),body:$('ieBody').value,pdf:$('iePdf').checked,cc:$('ieCc').checked,ccDisp:$('ieCcDisp').checked};}
 function iePrevUpdate(){
@@ -5930,7 +5944,8 @@ function loadPayClaims(force){
     payClaimsErr='';var m={};(r.data||[]).forEach(function(x){(m[x.invoice_id]=m[x.invoice_id]||[]).push(x);});
     var was=JSON.stringify(payClaims);payClaims=m;
     if(was===JSON.stringify(m))return;
-    if(ui.page==='invoices'&&$('modal').hidden)render();
+    document.querySelectorAll('.js-pay-badge').forEach(function(e){e.innerHTML=payBadge();});
+    if((ui.page==='invoices'||ui.page==='payments')&&$('modal').hidden)render();
     else if(!$('modal').hidden&&curView&&curView.name==='invoice'){render();invoiceDetail(curView.args[0]);}
   });
 }
@@ -5991,13 +6006,105 @@ function payCardHtml(inv){
   cl.slice(0,3).forEach(function(c){
     var head=esc(c.method||'Payment')+(c.conf?' · confirmation '+esc(c.conf):'')+' · '+esc(fmtStamp(c.created_at));
     if(c.status==='new')h+='<div class="claimbox"><b>Driver says he paid</b><div class="muted small">'+head+'</div><div class="muted small" style="margin-top:4px">Check that '+money(inv.total)+' with memo '+esc(inv.no)+' really arrived before you mark it paid. A screenshot can be fake.</div>'+
-      '<div class="actions" style="margin-top:8px"><button class="btn primary sm" type="button" data-action="claim-ok" data-id="'+c.id+'" data-inv="'+esc(inv.id)+'">Money received · Mark paid</button><button class="btn sm" type="button" data-action="claim-no" data-id="'+c.id+'" data-inv="'+esc(inv.id)+'">Not received</button></div></div>';
+      '<div class="actions" style="margin-top:8px"><button class="btn primary sm" type="button" data-action="dp-ask" data-k="ok" data-id="'+c.id+'" data-inv="'+esc(inv.id)+'">Money received · Mark paid</button><button class="btn sm" type="button" data-action="dp-ask" data-k="no" data-id="'+c.id+'" data-inv="'+esc(inv.id)+'">Not received</button></div></div>';
     else h+=ldRow('Driver said paid · '+fmtStamp(c.created_at),(c.status==='received'?'Money received':'Not received')+(c.handled_name?' · '+esc(c.handled_name):''));
   });
   var link=!o.on?'<p class="muted small" style="margin:0">Pay links are off. The admin turns them on in Settings → Driver payments.</p>':
     (!u?'<p class="muted small" style="margin:0">The pay link is made when the invoice is saved. Refresh the page in a moment.</p>':
       '<div class="paylinkrow"><span class="mono small">'+esc(u)+'</span></div><div class="actions" style="margin-top:8px"><button class="btn sm" type="button" data-action="pay-copy" data-id="'+esc(inv.id)+'">Copy pay link</button><a class="btn sm" href="'+esc(u)+'" target="_blank" rel="noopener">Open as driver</a><button class="btn sm" type="button" data-action="pay-reset" data-id="'+esc(inv.id)+'">New link (old one stops)</button></div>');
   return '<div class="ld-card"><h3>Pay link</h3>'+h+(h?'<div style="height:10px"></div>':'')+link+'</div>';
+}
+/* ---------- Driver payments page (admin / accountant) ----------
+   Every "I have sent the payment" from a driver's pay link, in one list: To check / Received / Not received.
+   Money received marks the invoice paid; both buttons can also email the driver (accountant's Zoho Mail). */
+function payBadge(){var n=0;Object.keys(payClaims).forEach(function(k){var c=payClaims[k][0];if(c&&c.status==='new'){var i=getInv(k);if(!i||i.status!=='Paid')n++;}});return n?' <span class="badge">'+n+'</span>':'';}
+var PAY_MAIL_DEF={
+  received:{on:true,subject:'Payment received · {invoice}',body:'Hi {driver}\n\nThank you, we received your payment of **{amount}** for invoice {invoice}. This invoice is now paid.\n\nBest regards,\nRonald Smith\nAccounts Manager\n510-996-4492'},
+  not_received:{on:true,subject:'Payment not received · {invoice}',body:'Hi {driver}\n\nWe could not find your payment of **{amount}** for invoice {invoice} yet. Please check it was sent to **Zululogistics25@gmail.com (Zulu Logistics)**, or reply to this email with the screenshot.\n\nPay here: {pay_link}\n\nBest regards,\nRonald Smith\nAccounts Manager\n510-996-4492'}};
+function payMailTpl(k){var t=(db.settings.payEmails||{})[k]||{},d=PAY_MAIL_DEF[k];return {on:t.on!==false,subject:t.subject||d.subject,body:t.body||d.body};}
+function allClaims(){
+  var out=[];Object.keys(payClaims).forEach(function(k){(payClaims[k]||[]).forEach(function(c,i){out.push({c:c,inv:getInv(k),latest:i===0});});});
+  return out;
+}
+function pPayments(){
+  loadPayClaims();
+  var tab=ui.dpTab||'new',q=String(ui.dpQ||'').toLowerCase(),ym=ui.dpYm==null?ymOfDate(TODAY):ui.dpYm;
+  var rows=allClaims().filter(function(x){return x.inv;});
+  /* a payment still "to check" only while its invoice is unpaid */
+  rows.forEach(function(x){x.st=x.c.status==='new'&&x.inv.status==='Paid'?'received_elsewhere':x.c.status;});
+  var inM=function(x){return !ym||String(x.c.created_at).slice(0,7)===ym;};
+  var cnt={new:0,received:0,not_received:0},sum={new:0,received:0};
+  rows.forEach(function(x){var k=x.st==='received_elsewhere'?'received':x.st;if(k==='new'||inM(x)){cnt[k]=(cnt[k]||0)+1;if(sum[k]!=null)sum[k]+=Number(x.inv.total)||0;}});
+  var oldest=rows.filter(function(x){return x.st==='new';}).sort(function(a,b){return String(a.c.created_at).localeCompare(String(b.c.created_at));})[0];
+  function ago(t){var h=(Date.now()-Date.parse(t))/36e5;return isNaN(h)?'':h<1?'just now':h<24?Math.round(h)+' h ago':Math.round(h/24)+' days ago';}
+  var list=rows.filter(function(x){var k=x.st==='received_elsewhere'?'received':x.st;if(k!==tab)return false;if(tab!=='new'&&!inM(x))return false;
+    if(!q)return true;var d=getDrv(x.inv.driverId)||{};return (String(d.name)+' '+String(d.carrier)+' '+x.inv.no).toLowerCase().indexOf(q)>-1;})
+    .sort(function(a,b){return tab==='new'?String(a.c.created_at).localeCompare(String(b.c.created_at)):String(b.c.created_at).localeCompare(String(a.c.created_at));});
+  var months=[];rows.forEach(function(x){var m=String(x.c.created_at).slice(0,7);if(m&&months.indexOf(m)<0)months.push(m);});if(months.indexOf(ymOfDate(TODAY))<0)months.push(ymOfDate(TODAY));months.sort().reverse();
+  var kp=function(k,v,sub){return statTile(k,String(v),sub);};
+  var meth=function(m){return '<span class="dpm"><span class="dpi '+(m==='Cash App'?'cas':'zel')+'">'+(m==='Cash App'?'$':'Z')+'</span>'+esc(m||'Other')+'</span>';};
+  var body=list.length?list.map(function(x){
+    var c=x.c,inv=x.inv,d=getDrv(inv.driverId)||{},de=getEmp(d.dispatcherId);
+    var last=tab==='new'?'<span class="pill p-booked">'+esc(ago(c.created_at))+'</span>':
+      (x.st==='received_elsewhere'?'<span class="pill p-paid">Paid</span><div class="muted small">marked paid on the invoice</div>':
+      '<span class="pill '+(c.status==='received'?'p-paid':'p-overdue')+'">'+(c.status==='received'?'&#10003; Received':'Not received')+'</span><div class="muted small">'+esc(c.handled_name||'')+(c.handled_at?' · '+esc(fmtStamp(c.handled_at)):'')+'</div>');
+    var acts=x.st==='new'?'<button class="btn primary sm" type="button" data-action="dp-ask" data-k="ok" data-id="'+c.id+'" data-inv="'+esc(inv.id)+'">Money received · Mark paid</button><button class="btn sm" type="button" data-action="dp-ask" data-k="no" data-id="'+c.id+'" data-inv="'+esc(inv.id)+'">Not received</button>':
+      (c.status==='not_received'&&x.latest&&inv.status!=='Paid'?'<button class="btn sm" type="button" data-action="dp-ask" data-k="ok" data-id="'+c.id+'" data-inv="'+esc(inv.id)+'">Money came later · Mark paid</button>':'');
+    return '<tr class="rowlink" data-action="invoice-row" data-id="'+esc(inv.id)+'"><td><b>'+esc(d.name||'(driver removed)')+'</b><div class="muted small">'+esc(d.carrier||'')+(de?' · dispatcher '+esc(nm(de)):'')+'</div></td>'+
+      '<td><span class="mono">'+esc(inv.no)+'</span></td><td class="num"><b>'+money(inv.total)+'</b></td><td>'+meth(c.method)+'<div class="muted small">'+(c.conf?'conf '+esc(c.conf):'no confirmation no.')+'</div></td>'+
+      '<td>'+esc(fmtStamp(c.created_at))+'</td><td>'+last+'</td><td><div class="rowact">'+acts+'</div></td></tr>';}).join(''):
+    '<tr><td colspan="7"><div class="empty" style="padding:30px;text-align:center">'+(tab==='new'?'&#10003; Nothing to check. All driver payments are done.':'Nothing here for this month.')+'</div></td></tr>';
+  return head('Driver payments','Payments drivers told us about from their pay link. Check the money in Zelle / Cash App, then mark it.')+
+    (payClaimsErr==='missing'?'<div class="banner"><span>Run the SQL file migration_2026_11o_pay_links.sql in Supabase to use this page.</span></div>':'')+
+    '<div class="stats">'+kp('To check',cnt.new,money(sum.new)+' waiting')+kp('Received',cnt.received,money(sum.received)+(ym?' in '+ymLabel(ym):''))+kp('Not received',cnt.not_received,'asked to check again')+kp('Oldest waiting',oldest?ago(oldest.c.created_at):'—','check these first')+'</div>'+
+    '<section class="panel"><div class="dptools"><div class="chips">'+[['new','To check'],['received','Received'],['not_received','Not received']].map(function(t){return '<button class="chip" type="button" data-action="dp-tab" data-t="'+t[0]+'" aria-pressed="'+(tab===t[0])+'">'+t[1]+' <span class="dpn">'+(cnt[t[0]]||0)+'</span></button>';}).join('')+'</div>'+
+      '<div style="flex:1"></div><input id="dpQ" type="search" placeholder="Search driver, company or invoice" value="'+esc(ui.dpQ||'')+'" style="width:240px;max-width:100%">'+
+      '<select id="dpYm" style="width:auto;flex:0 0 auto"><option value="">All months</option>'+months.map(function(m){return '<option value="'+m+'"'+(m===ym?' selected':'')+'>'+esc(ymLabel(m))+'</option>';}).join('')+'</select></div>'+
+      (tab==='new'&&cnt.new?'<div class="banner" style="margin:12px 14px 0"><span>&#9888; Before you press <b>Money received</b>, open Zelle / Cash App and check that the amount and the memo (invoice number) really arrived. A screenshot can be fake.</span></div>':'')+
+      '<div class="tablewrap"><table class="dptbl" style="min-width:900px"><thead><tr><th>Driver</th><th>Invoice</th><th class="num">Amount</th><th>Paid with</th><th>Told us</th><th>'+(tab==='new'?'Waiting':'Checked by')+'</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div></section>';
+}
+function dpAsk(el){
+  var ok=el.dataset.k==='ok',id=el.dataset.inv,cid=Number(el.dataset.id),inv=getInv(id);if(!inv)return;
+  var d=getDrv(inv.driverId)||{},c=(payClaims[id]||[]).find(function(x){return x.id===cid;})||{},t=payMailTpl(ok?'received':'not_received');
+  var de=d.dispatcherId?getEmp(d.dispatcherId):null,dm=d.dispatcherId?empMail(d.dispatcherId):'',it=invMailTpl();
+  var canMail=!!d.email,fromDetail=!$('modal').hidden&&curView&&curView.name==='invoice'?'1':'';
+  var prev='<div class="mailprev"><div class="mailhd"><div><span>To</span><b>'+esc(d.name||'')+(d.email?' &lt;'+esc(d.email)+'&gt;':'')+'</b></div>'+(it.ccDisp&&dm?'<div><span>CC</span><b>'+esc(nm(de))+' &lt;'+esc(dm)+'&gt;</b></div>':'')+
+    '<div><span>Subject</span><b>'+invMailFill(t.subject,inv,false)+'</b></div></div><div class="mailtxt">'+invMailFill(t.body,inv,false)+'</div></div>';
+  openModal(sheetHead(ok?'Mark '+inv.no+' as paid':'Payment not received · '+inv.no)+
+    '<div class="dprow"><span>Driver</span><b>'+esc(d.name||'')+(d.carrier?' · '+esc(d.carrier):'')+'</b><span>Invoice</span><b class="mono">'+esc(inv.no)+'</b><span>Amount</span><b>'+money(inv.total)+'</b><span>Paid with</span><b>'+esc(c.method||'')+(c.conf?' · conf '+esc(c.conf):'')+'</b></div>'+
+    (ok?'<div class="banner" style="margin-top:12px"><span>Did you see '+money(inv.total)+' with memo '+esc(inv.no)+' in '+esc(c.method||'Zelle / Cash App')+'?</span></div>':'')+
+    (canMail?'<label class="iechk" style="margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:10px 12px"><input type="checkbox" id="dpMail"'+(t.on?' checked':'')+'> <span><b>Also email the driver</b> <span class="muted small">(accountant\'s Zoho Mail'+(it.ccDisp&&dm?', dispatcher in CC':'')+'. Change the text in Settings → Invoice email.)</span></span></label><div id="dpPrev"'+(t.on?'':' style="display:none"')+'>'+prev+'</div>':
+      '<p class="muted small" style="margin:12px 0 0">This driver has no email saved, so no email is sent.</p>')+
+    '<div class="actions" style="justify-content:flex-end;margin-top:14px"><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="button" data-action="dp-do" data-k="'+(ok?'ok':'no')+'" data-id="'+cid+'" data-inv="'+esc(id)+'" data-back="'+fromDetail+'">'+(ok?'Yes, money received · Mark paid':'Mark not received')+'</button></div>',true);
+  var cb=$('dpMail');if(cb)cb.addEventListener('change',function(){$('dpPrev').style.display=cb.checked?'':'none';});
+}
+function dpDo(el){
+  var ok=el.dataset.k==='ok',id=el.dataset.inv,cid=Number(el.dataset.id),inv=getInv(id);if(!inv)return;
+  var mail=$('dpMail')&&$('dpMail').checked,back=el.dataset.back==='1'||ui.page!=='payments'?id:null;
+  el.disabled=true;el.textContent='Saving…';
+  var q=sb.from('pay_claims').update({status:ok?'received':'not_received',handled_by:session.uid,handled_name:session.name||session.email,handled_at:new Date().toISOString()});
+  q=cid?q.eq('id',cid):q.eq('invoice_id',id).eq('status','new');
+  q.then(function(r){
+    if(r.error){el.disabled=false;el.textContent=ok?'Yes, money received · Mark paid':'Mark not received';toast('Could not save: '+r.error.message);return;}
+    (payClaims[id]||[]).forEach(function(c){if(c.id===cid||(!cid&&c.status==='new')){c.status=ok?'received':'not_received';c.handled_name=session.name||session.email;c.handled_at=new Date().toISOString();}});
+    if(ok&&inv.status!=='Paid'){inv.status='Paid';inv.paidOn=TODAY;inv.loadIds.forEach(function(lid){var l=getLoad(lid);if(l){l.status='Paid';l.paidOn=inv.paidOn;}});persist();}
+    var msg=ok?inv.no+' marked paid. The driver\'s pay page now shows Paid.':inv.no+' marked not received. The driver\'s pay page asks him to check.';
+    closeModal();render();if(back)invoiceDetail(back);
+    document.querySelectorAll('.js-pay-badge').forEach(function(e){e.innerHTML=payBadge();});
+    if(!mail){toast(msg);return;}
+    toast(msg+' Sending the email…');
+    sb.functions.invoke('zulu-send-invoice',{body:{invoiceId:id,kind:ok?'received':'not_received',payBase:payBase()}}).then(function(r2){return fnErr(r2).then(function(err){
+      if(!err){toast('Email sent to '+((r2.data&&r2.data.to)||'the driver')+'.');setTimeout(function(){loadInvMails(true);},1500);return;}
+      toast('Saved, but the email was not sent: '+fnErrText(err,'error'));});}).catch(function(){toast('Saved, but the email was not sent. Check the internet.');});
+  });
+}
+function payEmailsPanelHtml(){
+  var r=payMailTpl('received'),n=payMailTpl('not_received');
+  function box(k,lbl,t){return '<div class="iecard"><b>'+lbl+'</b><label class="iechk"><input type="checkbox" id="pe_'+k+'_on"'+(t.on?' checked':'')+'> Tick "Also email the driver" by default</label>'+
+    '<label class="field"><span>Subject</span><input id="pe_'+k+'_s" value="'+esc(t.subject)+'" maxlength="200"></label><label class="field"><span>Message</span><textarea id="pe_'+k+'_b" rows="8">'+esc(t.body)+'</textarea></label></div>';}
+  return '<div style="margin-top:18px"><div class="muted small" style="margin-bottom:6px"><b>Emails after you check a driver\'s payment</b> (Driver payments page). Same tags and ** highlight as above; {pay_link} works too.</div>'+
+    '<div class="iegrid">'+box('received','Money received',r)+box('not_received','Not received',n)+'</div>'+
+    '<div class="actions" style="margin-top:10px"><button class="btn primary" type="button" data-action="pe-save">Save these two emails</button></div></div>';
 }
 function pDispReports(){
   var disp=staff('Dispatcher');
@@ -6561,6 +6668,11 @@ var actions={
       if(r.error){el.disabled=false;toast('Could not update: '+r.error.message);return;}
       (payClaims[id]||[]).forEach(function(c){if(c.status==='new'){c.status='not_received';c.handled_name=session.name||session.email;}});
       render();invoiceDetail(id);toast('Marked as not received. The driver\'s pay page asks him to check the payment.');});},
+  'dp-tab':function(el){ui.dpTab=el.dataset.t;render();},
+  'dp-ask':function(el){if(!can('invoice'))return;dpAsk(el);},
+  'dp-do':function(el){if(!can('invoice'))return;dpDo(el);},
+  'pe-save':function(){if(!isOffice())return;var o={};['received','not_received'].forEach(function(k){o[k]={on:$('pe_'+k+'_on').checked,subject:$('pe_'+k+'_s').value.trim()||PAY_MAIL_DEF[k].subject,body:$('pe_'+k+'_b').value.trim()?$('pe_'+k+'_b').value:PAY_MAIL_DEF[k].body};});
+    db.settings.payEmails=o;persist();toast('The two payment emails are saved');},
   'inv-send':function(el){if(!can('invoice'))return;invSendPreview(el.dataset.id);},
   'inv-send-back':function(el){invoiceDetail(el.dataset.id);},
   'inv-send-go':function(el){if(!can('invoice'))return;invSendGo(el);},
