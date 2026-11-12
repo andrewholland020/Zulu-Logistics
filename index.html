@@ -340,6 +340,8 @@ tr.rowlink{cursor:pointer}
 .mailtxt{padding:12px;white-space:pre-wrap;font-size:14px;line-height:1.55;overflow-x:auto}
 .mailatt{margin:0 12px 12px;display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:13px}
 mark.mfill{background:#fff4c2;color:#4a3800;border-radius:4px;padding:0 3px}
+.mailtxt .mhl{background:#ffe066;color:#111;font-weight:800;font-size:16px;padding:2px 6px;border-radius:4px}
+.mailtxt .mhl mark.mfill{background:transparent;padding:0;color:inherit}
 .mailtbl{border-collapse:collapse;font-size:13px;margin:4px 0;white-space:normal}
 .mailtbl td,.mailtbl th{border:1px solid var(--line);padding:4px 8px;text-align:left}
 .mailtbl .num{text-align:right}
@@ -5766,7 +5768,7 @@ function salesDetail(id){
    shows the filled-in email, then the Supabase Edge Function "zulu-send-invoice" sends it from Zoho with the PDF.
    The Zoho App Password is a Supabase secret; it is never in this page. Each send is recorded (table invoice_emails). */
 var INV_MAIL_DEF={subject:'Invoice {invoice} · {amount} due {due}',pdf:true,cc:false,ccDisp:true,
-  body:'Hi {driver}\n\nHope you\'re doing well.\n\nPlease find the invoice attached for your reference.\n\nTotal Due: {amount}\nPayment Method: Zelle/Cashapp\nEnroll As Zulu Logistics\nZelle Email/Phone: Zululogistics@gmail.com\nYour prompt payment is appreciated. Send Me Screenshot once it’s completed or if you need anything else.\n\n\nBest regards,\nAllen sam\nAccounts Manager\n675-987-0986'};
+  body:'Hi {driver}\n\nHope you\'re doing well.\n\nPlease find the invoice attached for your reference.\n\n**Total Due: {amount}**\nPayment Method: Zelle/Cashapp\n**Enroll As Zulu Logistics**\nZelle Email/Phone: Zululogistics@gmail.com\nYour prompt payment is appreciated. Send Me Screenshot once it’s completed or if you need anything else.\n\n\nBest regards,\nAllen sam\nAccounts Manager\n675-987-0986'};
 var INV_MAIL_TAGS=[['{driver}','Driver name'],['{carrier}','Driver company name'],['{first_name}','First name'],['{invoice}','Invoice number'],['{amount}','Total due'],['{due}','Due date'],['{issued}','Issued date'],['{loads}','Loads table'],['{note}','Invoice note']];
 function invMailTpl(){var t=db.settings.invoiceEmail||{};return {subject:t.subject||INV_MAIL_DEF.subject,body:t.body||INV_MAIL_DEF.body,pdf:t.pdf!==false,cc:!!t.cc,ccDisp:t.ccDisp!==false};}
 /* the email of the driver's dispatcher for CC: the work email on the employee, else their portal login email */
@@ -5780,12 +5782,14 @@ function invMailLoadsHtml(inv){
 function invMailFill(text,inv,mark){
   var d=getDrv(inv.driverId)||{},name=String(d.name||'');
   var map={'{driver}':name,'{carrier}':String(d.carrier||''),'{first_name}':name.split(/\s+/)[0]||'','{invoice}':inv.no||'','{amount}':money(inv.total),'{due}':fmtD(inv.due),'{issued}':fmtD(inv.issued),'{note}':inv.note||'','{company}':db.settings.company||''};
-  return esc(text).replace(/\{[a-z_]+\}/g,function(t){
+  return invMailHl(esc(text).replace(/\{[a-z_]+\}/g,function(t){
     if(t==='{loads}')return invMailLoadsHtml(inv);
     if(t==='{pay_link}')return '';
     if(!(t in map))return t;var v=map[t];if(!v)return '';
-    return mark?'<mark class="mfill">'+esc(v)+'</mark>':esc(v);});
+    return mark?'<mark class="mfill">'+esc(v)+'</mark>':esc(v);}));
 }
+/* text written between ** and ** is highlighted in the email (bold, larger, yellow background) */
+function invMailHl(h){return h.replace(/\*\*([^\n]+?)\*\*/g,'<span class="mhl">$1</span>');}
 function invMailPreview(inv,mark){
   var t=invMailTpl(),d=getDrv(inv.driverId)||{};
   return '<div class="mailprev"><div class="mailhd"><div><span>From</span><b>Accountant\'s Zoho Mail</b></div><div><span>To</span>'+(d.email?'<b>'+esc(d.name||'')+' &lt;'+esc(d.email)+'&gt;</b>':'<b style="color:var(--bad)">No email saved for this driver</b>')+'</div>'+(function(){var cc=[];if(t.ccDisp&&d.dispatcherId){var de=getEmp(d.dispatcherId),dm=empMail(d.dispatcherId);cc.push(dm?'<b>'+esc(nm(de))+' &lt;'+esc(dm)+'&gt;</b> <span class="muted small">(dispatcher)</span>':'<b style="color:var(--warn)">'+esc(nm(de))+' (dispatcher) has no email saved</b>');}
@@ -5857,6 +5861,7 @@ function invoiceEmailPanel(){
     '<div class="pad"><div class="iegrid"><div>'+
       '<label class="field"><span>Subject</span><input id="ieSubj" value="'+esc(t.subject)+'" maxlength="200"></label>'+
       '<label class="field"><span>Message</span><textarea id="ieBody" rows="16">'+esc(t.body)+'</textarea></label>'+
+      '<div class="actions" style="margin:-4px 0 8px"><button class="btn sm" type="button" data-action="ie-hl" title="Select some text in the message first">&#9998; Highlight selected text</button><span class="muted small">Text between ** and ** shows highlighted in the email, e.g. **Total Due: {amount}**</span></div>'+
       '<div class="ietags">'+INV_MAIL_TAGS.map(function(x){return '<button class="chip" type="button" data-action="ie-tag" data-t="'+x[0]+'" title="'+esc(x[1])+'">'+x[0]+'</button>';}).join('')+'</div>'+
       '<label class="iechk"><input type="checkbox" id="iePdf"'+(t.pdf?' checked':'')+'> Attach the invoice PDF</label>'+
       '<label class="iechk"><input type="checkbox" id="ieCcDisp"'+(t.ccDisp?' checked':'')+'> CC the driver\'s dispatcher</label>'+
@@ -6415,6 +6420,11 @@ var actions={
   'inv-send-back':function(el){invoiceDetail(el.dataset.id);},
   'inv-send-go':function(el){if(!can('invoice'))return;invSendGo(el);},
   'ie-tag':function(el){var a=$('ieBody');if(!a)return;var p=a.dataset.pos==null?a.value.length:Math.min(Number(a.dataset.pos),a.value.length),q=a.dataset.end==null?p:Math.min(Math.max(Number(a.dataset.end),p),a.value.length);a.value=a.value.slice(0,p)+el.dataset.t+a.value.slice(q);a.focus();a.selectionStart=a.selectionEnd=p+el.dataset.t.length;a.dataset.pos=a.dataset.end=p+el.dataset.t.length;iePrevUpdate();},
+  'ie-hl':function(){var a=$('ieBody');if(!a)return;var p=Number(a.dataset.pos==null?a.selectionStart:a.dataset.pos),q=Number(a.dataset.end==null?a.selectionEnd:a.dataset.end);
+    if(!(q>p)){toast('First select the text you want to highlight, then press this button.');return;}
+    var sel=a.value.slice(p,q),lead=sel.match(/^\s*/)[0],tail=sel.match(/\s*$/)[0],core=sel.trim();if(!core){toast('First select the text you want to highlight.');return;}
+    var rep=/^\*\*[\s\S]*\*\*$/.test(core)?core.slice(2,-2):core.split('\n').map(function(x){return x.trim()?'**'+x.replace(/\*\*/g,'')+'**':x;}).join('\n');
+    a.value=a.value.slice(0,p)+lead+rep+tail+a.value.slice(q);a.focus();a.selectionStart=p;a.selectionEnd=p+lead.length+rep.length+tail.length;a.dataset.pos=a.selectionStart;a.dataset.end=a.selectionEnd;iePrevUpdate();},
   'ie-save':function(){if(!isOffice())return;var f=ieForm();if(!f.subject||!f.body.trim()){toast('Write a subject and a message first.');return;}
     db.settings.invoiceEmail=f;persist();toast('Invoice email text saved');},
   'ie-reset':function(){$('ieSubj').value=INV_MAIL_DEF.subject;$('ieBody').value=INV_MAIL_DEF.body;$('iePdf').checked=true;$('ieCc').checked=false;$('ieCcDisp').checked=true;iePrevUpdate();toast('Original text put back. Press Save to keep it.');},
