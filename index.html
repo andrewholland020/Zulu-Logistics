@@ -355,7 +355,8 @@ mark.mfill{background:transparent;color:inherit;border-bottom:2px dotted var(--a
 .dprow span{color:var(--muted)}
 .dptbl .mono,.dptbl td:nth-child(5){white-space:nowrap}
 .dptools input[type=search]{flex:0 1 260px}
-.mpaybtn{display:inline-block;background:#f28c28;color:#fff;font-weight:800;padding:5px 14px;border-radius:8px}
+.mpaybtn{display:inline-block;background:#0c1f3b;color:#fff;font:700 15px Georgia,'Times New Roman',serif;letter-spacing:1px;padding:10px 24px;border-radius:8px;border-bottom:4px solid #f28c28;margin:4px 0}
+.mpaybtn i{font-style:normal;color:#f28c28}
 .doc .paybox{display:flex;gap:14px;align-items:center;border:2px solid #f28c28;border-radius:12px;padding:12px 14px;background:rgba(242,140,40,.06)}
 .doc .qrbox{flex:none;width:96px;height:96px;display:grid;place-items:center;background:#fff;border-radius:6px}
 .doc .qrbox img{width:96px;height:96px;image-rendering:pixelated}
@@ -5831,7 +5832,7 @@ function invMailFill(text,inv,mark){
   var map={'{driver}':name,'{carrier}':String(d.carrier||''),'{first_name}':name.split(/\s+/)[0]||'','{invoice}':inv.no||'','{amount}':money(inv.total),'{due}':fmtD(inv.due),'{issued}':fmtD(inv.issued),'{note}':inv.note||'','{company}':db.settings.company||''};
   return invMailHl(esc(text).replace(/\{[a-z_]+\}/g,function(t){
     if(t==='{loads}')return invMailLoadsHtml(inv);
-    if(t==='{pay_link}'){var u=payOpt().on?payUrl(inv):'';return u?'<span class="mpaybtn">Pay now</span> <span class="muted small">'+esc(u)+'</span>':(payOpt().on?'<span class="muted small">(pay link)</span>':'');}
+    if(t==='{pay_link}'){var u=payOpt().on?payUrl(inv):'';return u?'<span class="mpaybtn">PAY NOW&nbsp;&nbsp;<i>&rarr;</i></span><br><span class="muted small">Secure page for invoice '+esc(inv.no)+' · '+money(inv.total)+'</span>':(payOpt().on?'<span class="muted small">(pay link)</span>':'');}
     if(!(t in map))return t;var v=map[t];if(!v)return '';
     return mark?'<mark class="mfill">'+esc(v)+'</mark>':esc(v);}));
 }
