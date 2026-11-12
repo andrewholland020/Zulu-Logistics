@@ -5767,7 +5767,7 @@ function salesDetail(id){
    The Zoho App Password is a Supabase secret; it is never in this page. Each send is recorded (table invoice_emails). */
 var INV_MAIL_DEF={subject:'Invoice {invoice} · {amount} due {due}',pdf:true,cc:false,ccDisp:true,
   body:'Hi {driver}\n\nHope you\'re doing well.\n\nPlease find the invoice attached for your reference.\n\nTotal Due: {amount}\nPayment Method: Zelle/Cashapp\nEnroll As Zulu Logistics\nZelle Email/Phone: Zululogistics@gmail.com\nYour prompt payment is appreciated. Send Me Screenshot once it’s completed or if you need anything else.\n\n\nBest regards,\nAllen sam\nAccounts Manager\n675-987-0986'};
-var INV_MAIL_TAGS=[['{driver}','Driver name'],['{first_name}','First name'],['{invoice}','Invoice number'],['{amount}','Total due'],['{due}','Due date'],['{issued}','Issued date'],['{loads}','Loads table'],['{note}','Invoice note']];
+var INV_MAIL_TAGS=[['{driver}','Driver name'],['{carrier}','Driver company name'],['{first_name}','First name'],['{invoice}','Invoice number'],['{amount}','Total due'],['{due}','Due date'],['{issued}','Issued date'],['{loads}','Loads table'],['{note}','Invoice note']];
 function invMailTpl(){var t=db.settings.invoiceEmail||{};return {subject:t.subject||INV_MAIL_DEF.subject,body:t.body||INV_MAIL_DEF.body,pdf:t.pdf!==false,cc:!!t.cc,ccDisp:t.ccDisp!==false};}
 /* the email of the driver's dispatcher for CC: the work email on the employee, else their portal login email */
 function empMail(id){var e=getEmp(id)||{};if(e.email)return String(e.email).trim();var p=profiles.find(function(x){return x.emp_id===id&&x.email;});return p?String(p.email):'';}
@@ -5779,7 +5779,7 @@ function invMailLoadsHtml(inv){
 }
 function invMailFill(text,inv,mark){
   var d=getDrv(inv.driverId)||{},name=String(d.name||'');
-  var map={'{driver}':name,'{first_name}':name.split(/\s+/)[0]||'','{invoice}':inv.no||'','{amount}':money(inv.total),'{due}':fmtD(inv.due),'{issued}':fmtD(inv.issued),'{note}':inv.note||'','{company}':db.settings.company||''};
+  var map={'{driver}':name,'{carrier}':String(d.carrier||''),'{first_name}':name.split(/\s+/)[0]||'','{invoice}':inv.no||'','{amount}':money(inv.total),'{due}':fmtD(inv.due),'{issued}':fmtD(inv.issued),'{note}':inv.note||'','{company}':db.settings.company||''};
   return esc(text).replace(/\{[a-z_]+\}/g,function(t){
     if(t==='{loads}')return invMailLoadsHtml(inv);
     if(t==='{pay_link}')return '';
