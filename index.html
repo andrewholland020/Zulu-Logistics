@@ -326,6 +326,23 @@ tr.rowlink{cursor:pointer}
 .ld-contact a:hover{border-color:var(--accent)}
 .ld-steps.four{grid-template-columns:repeat(4,minmax(0,1fr))}
 .ld-steps.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.iegrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:900px){.iegrid{grid-template-columns:minmax(0,1fr)}}
+.iegrid textarea{min-height:300px;font-family:inherit;line-height:1.5}
+.ietags{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 10px}
+.ietags .chip{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.iechk{display:flex;gap:8px;align-items:center;font-size:14px;margin:6px 0}
+.iechk input{width:17px;height:17px}
+.iecard{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:14px}
+.mailprev{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.mailhd{padding:10px 12px;border-bottom:1px solid var(--line);display:grid;gap:3px;font-size:13px}
+.mailhd span{display:inline-block;min-width:62px;color:var(--muted)}
+.mailtxt{padding:12px;white-space:pre-wrap;font-size:14px;line-height:1.55;overflow-x:auto}
+.mailatt{margin:0 12px 12px;display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:13px}
+mark.mfill{background:#fff4c2;color:#4a3800;border-radius:4px;padding:0 3px}
+.mailtbl{border-collapse:collapse;font-size:13px;margin:4px 0;white-space:normal}
+.mailtbl td,.mailtbl th{border:1px solid var(--line);padding:4px 8px;text-align:left}
+.mailtbl .num{text-align:right}
 @media (max-width:700px){
   .ld-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
   .ld-cols{grid-template-columns:minmax(0,1fr)}
@@ -3415,6 +3432,8 @@ function renderNow(){
   mAfterRender();
   if(ui.page==='loads')bindLoadsFilter();
   if(ui.page==='settings'&&session.role==='admin')loadHealth();
+  if(ui.page==='invoices'||ui.page==='settings')loadInvMails();
+  if(ui.page==='settings'){var ieb=$('ieBody');if(ieb)['keyup','click','select','blur','input'].forEach(function(ev){ieb.addEventListener(ev,function(){ieb.dataset.pos=ieb.selectionStart;ieb.dataset.end=ieb.selectionEnd;});});['ieSubj','ieBody'].forEach(function(k){var e=$(k);if(e)e.addEventListener('input',iePrevUpdate);});['iePdf','ieCc','ieCcDisp'].forEach(function(k){var e=$(k);if(e)e.addEventListener('change',iePrevUpdate);});}
   if(ui.page==='inbox')afterInbox();
   if(ui.page==='salesdaily'){var sd=$('sdAgentSel');if(sd)sd.addEventListener('change',function(){ui.sdAgent=sd.value;render();});}
   if(ui.page==='dailyreport'){var dd=$('drDate');if(dd)dd.addEventListener('change',function(){if(okDate(dd.value)){ui.drDate=dd.value;render();}});}
@@ -3947,37 +3966,42 @@ function loadPdfLib(){
   pdfLibP=new Promise(function(ok,no){var sc=document.createElement('script');sc.src=PDF_LIB;sc.onload=function(){ok();};sc.onerror=function(){pdfLibP=null;no(new Error('pdf library'));};document.head.appendChild(sc);});
   return pdfLibP;
 }
-function downloadDocPdf(btn){
-  var box=btn.closest('.sheet')||document.getElementById('modal')||document;
-  var doc=box.querySelector('.doc');if(!doc){toast('Nothing to download.');return;}
-  var name=String(btn.dataset.name||baseTitle).replace(/[\\\/:*?"<>|]+/g,'-').trim()||'ZULU document';
-  var html=document.documentElement,mode=html.getAttribute('data-mode'),label=btn.textContent;
-  btn.disabled=true;btn.textContent='Making PDF…';
-  /* the document is copied to the top-left corner of the page and the page is scrolled to the top while the
-     PDF is made: a page scrolled down (or a scrolled pop-up) otherwise gives a blank PDF */
-  var wrap=null,sx=window.scrollX,sy=window.scrollY,failed=false;
-  loadPdfLib().then(function(){
+/* makes a PDF of a document: out 'save' downloads it, out 'b64' gives it back as base64 (for emailing) */
+function docPdf(doc,name,out){
+  var html=document.documentElement,mode=html.getAttribute('data-mode');
+  var wrap=null,sx=window.scrollX,sy=window.scrollY,res;
+  return loadPdfLib().then(function(){
     if(mode==='dark')html.removeAttribute('data-mode');
     document.body.classList.add('pdfcap');
     wrap=document.createElement('div');wrap.className='pdfwrap';
     wrap.style.cssText='position:fixed;left:0;top:0;width:794px;background:#fff;margin:0;padding:0;z-index:-1;pointer-events:none';
     wrap.appendChild(doc.cloneNode(true));document.body.appendChild(wrap);
-    /* a wide document (Monthly Report tables) is made at its full width and goes landscape, so nothing is cut off */
     var w=Math.max(794,Math.ceil(wrap.firstChild.scrollWidth),Math.ceil(wrap.scrollWidth));
     [].forEach.call(wrap.querySelectorAll('.tablewrap'),function(t){w=Math.max(w,Math.ceil(t.scrollWidth)+40);});
     wrap.style.width=w+'px';
     window.scrollTo(0,0);
-    return window.html2pdf().set({
+    var w2=window.html2pdf().set({
       margin:[10,10,12,10],filename:name+'.pdf',
-      image:{type:'jpeg',quality:0.96},
+      image:{type:'jpeg',quality:out==='b64'?0.9:0.96},
       html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,scrollX:0,scrollY:0},
       jsPDF:{unit:'mm',format:'a4',orientation:parseInt(wrap.style.width,10)>900?'landscape':'portrait'},
       pagebreak:{mode:['css','legacy'],before:'.pb',avoid:['tr','.totals','.foot']}
-    }).from(wrap.firstChild).save();
-  }).catch(function(){failed=true;}).then(function(){
+    }).from(wrap.firstChild);
+    return out==='b64'?w2.outputPdf('datauristring').then(function(u){res=String(u).split(',')[1]||'';}):w2.save();
+  }).then(function(){return res;},function(e){throw e;}).finally(function(){
     if(wrap&&wrap.parentNode)wrap.parentNode.removeChild(wrap);
     document.body.classList.remove('pdfcap');if(mode==='dark')html.setAttribute('data-mode','dark');
     window.scrollTo(sx,sy);
+  });
+}
+function downloadDocPdf(btn){
+  var box=btn.closest('.sheet')||document.getElementById('modal')||document;
+  var doc=box.querySelector('.doc');if(!doc){toast('Nothing to download.');return;}
+  var name=String(btn.dataset.name||baseTitle).replace(/[\\\/:*?"<>|]+/g,'-').trim()||'ZULU document';
+  var label=btn.textContent;
+  btn.disabled=true;btn.textContent='Making PDF…';
+  var failed=false;
+  docPdf(doc,name,'save').catch(function(){failed=true;}).then(function(){
     btn.disabled=false;btn.textContent=label;
     if(failed){document.title=name;document.body.classList.add('printing-doc');setTimeout(function(){window.print();},60);}
     else toast('PDF downloaded: '+name+'.pdf');
@@ -4738,7 +4762,7 @@ function invListHtml(){
   }).filter(function(i){return invMatch(i,ui.invQ.trim().toLowerCase());});
   var list=shown.slice().sort(function(a,b){return b.no.localeCompare(a.no);}).map(function(i){
     return '<tr class="rowlink" data-action="invoice-row" data-id="'+i.id+'" title="Click for invoice details"><td><span class="mono">'+esc(i.no)+'</span></td><td>'+esc(nm(getDrv(i.driverId)))+'</td>'+
-      '<td>'+fmtD(i.issued)+(invMoved(i)?'<div class="small" style="color:var(--warn)">Counts in '+esc(ymLabel(ymOfDate(i.countOn)))+' · week of '+esc(shortD(i.countOn))+'</div>':'')+'</td><td>'+fmtD(i.due)+'</td><td class="num">'+money(i.total)+'</td><td>'+pill(invStatus(i))+'</td>'+
+      '<td>'+fmtD(i.issued)+(invMoved(i)?'<div class="small" style="color:var(--warn)">Counts in '+esc(ymLabel(ymOfDate(i.countOn)))+' · week of '+esc(shortD(i.countOn))+'</div>':'')+'</td><td>'+fmtD(i.due)+'</td><td class="num">'+money(i.total)+'</td><td>'+pill(invStatus(i))+(invMails[i.id]?'<div class="small muted" title="'+esc(invMailWhen(invMails[i.id][0]))+'">&#9993; Emailed '+esc(fmtD(dayOf(invMails[i.id][0].sent_at)))+'</div>':'')+'</td>'+
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="view-invoice" data-id="'+i.id+'">Open</button>'+(can('invoice')?'<button class="btn sm danger" type="button" data-action="delete-invoice" data-id="'+i.id+'">Delete</button>':'')+'</div></td></tr>';}).join('');
   return (list?'<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Driver</th><th>Issued</th><th>Due</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>'+list+'</tbody></table></div>':'<div class="empty">'+(ui.invQ.trim()?'No invoices match your search.':'No invoices yet.')+'</div>');
 }
@@ -4813,7 +4837,10 @@ function invoiceDetail(id){
   var dueTxt=inv.due?fmtD(inv.due)+(over?' · '+days(inv.due,coToday())+' days late':(!paid&&inv.due>=coToday()?' · in '+days(coToday(),inv.due)+' days':'')):'';
   var steps=[['Issued',inv.issued?fmtD(inv.issued):'',true],['Due',dueTxt,paid||over||(inv.due&&inv.due<=coToday())],['Paid',paid&&inv.paidOn?fmtD(inv.paidOn)+(inv.issued?' · after '+days(inv.issued,inv.paidOn)+' days':''):'',paid]];
   var mc=d.mc?esc(/^mc/i.test(String(d.mc))?d.mc:'MC '+d.mc):'';
+  loadInvMails();
+  var sentL=invMails[inv.id]||[];
   var acts='<button class="btn primary" type="button" data-action="view-invoice" data-id="'+inv.id+'">Open invoice (PDF / print)</button>';
+  if(canEdit)acts+='<button class="btn" type="button" data-action="inv-send" data-id="'+inv.id+'">'+(sentL.length?'Email again':'Email to driver')+'</button>';
   if(canEdit){
     acts+=(paid?'<button class="btn" type="button" data-action="unpay-invoice" data-back="detail" data-id="'+inv.id+'">Mark unpaid</button>':'<button class="btn" type="button" data-action="pay-invoice" data-back="detail" data-id="'+inv.id+'">Mark paid</button>')+
       '<button class="btn" type="button" data-action="edit-invoice" data-id="'+inv.id+'">Edit invoice</button>'+
@@ -4840,6 +4867,7 @@ function invoiceDetail(id){
     '<div class="ld-card"><h3>Dates</h3><ol class="ld-steps three">'+steps.map(function(x,i){var ok=x[2],prevOk=i>0&&steps[i-1][2];
       return '<li class="'+(ok?'done':'')+(ok&&prevOk?' linked':'')+((paid&&i===2)||(!paid&&i===(ok?1:0))?' now':'')+'"><span class="ld-ck"'+(over&&i===1?' style="background:var(--bad);border-color:var(--bad)"':'')+'>'+(ok?(over&&i===1?'!':'&#10003;'):'')+'</span><b>'+x[0]+'</b><small>'+(x[1]||'&nbsp;')+'</small></li>';}).join('')+'</ol></div>'+
     (inv.note?'<div class="invnote" style="white-space:pre-wrap;background:#fff4c2;border:1px solid #f0d36b;border-left:4px solid #e0a800;border-radius:10px;padding:12px 14px;color:#4a3800"><b>Note:</b> '+esc(inv.note)+'</div>':'')+
+    (canEdit?'<div class="ld-card"><h3>Email to driver</h3>'+(sentL.length?sentL.slice(0,5).map(function(x){return ldRow('Emailed '+fmtStamp(x.sent_at),esc(x.to_email||'')+(x.sent_by_name?' · by '+esc(x.sent_by_name):''));}).join(''):'<p class="muted small" style="margin:0">Not emailed from the portal yet.'+(d.email?' It goes to '+esc(d.email)+'.':' This driver has no email saved.')+'</p>')+'</div>':'')+
     '<div class="ld-card"><h3>Loads on this invoice <span class="muted small" style="font-weight:400;text-transform:none;letter-spacing:0">· '+plural(ls.length,'load')+'</span></h3>'+
       (ls.length?'<div class="tablewrap"><table style="min-width:600px"><thead><tr><th>Load</th><th>Route</th><th>Drop-off</th><th class="num">Load rate</th><th class="num">Fee</th></tr></thead><tbody>'+
         ls.map(function(l){return '<tr class="rowlink" data-action="load-detail" data-id="'+l.id+'"><td><span class="mono">'+esc(l.ref)+'</span><div class="muted small">'+esc(nm(getEmp(l.dispatcherId)))+'</div></td><td>'+esc(l.origin)+' → '+esc(l.dest)+'</td><td>'+fmtD(l.delivery)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(invFee(inv,l))+'</td></tr>';}).join('')+
@@ -4853,7 +4881,7 @@ function invoiceDetail(id){
 function viewInvoice(id){
   var inv=getInv(id);if(!inv)return;
   var d=getDrv(inv.driverId),canEdit=can('invoice');
-  var mail='<div class="mailbox"><div><div class="lbl">Send by email</div><div>To <span class="mono">'+esc(d&&d.email?d.email:'(no email on this driver yet)')+'</span></div><div class="muted small">This page cannot send mail itself. Copy the address and message into your email.</div></div>'+
+  var mail=(canEdit?'<div class="actions" style="margin:12px 0 0"><button class="btn primary" type="button" data-action="inv-send" data-id="'+inv.id+'">Email to driver (Zoho)</button></div>':'')+'<div class="mailbox"><div><div class="lbl">Send by email</div><div>To <span class="mono">'+esc(d&&d.email?d.email:'(no email on this driver yet)')+'</span></div><div class="muted small">This page cannot send mail itself. Copy the address and message into your email.</div></div>'+
     '<div class="actions"><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="to">Copy email address</button><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="subject">Copy subject</button><button class="btn sm" type="button" data-action="copy-mail" data-id="'+inv.id+'" data-what="body">Copy message</button></div></div>';
   openModal(sheetHead('Invoice '+inv.no)+invoiceDoc(inv)+mail+
     '<div class="actions" style="justify-content:flex-end"><button class="btn" type="button" data-action="copy-invoice" data-id="'+inv.id+'">Copy invoice as text</button>'+
@@ -5090,7 +5118,7 @@ function payInvHtml(){
   return '<div class="tablewrap"><table style="min-width:820px"><thead><tr><th>Invoice</th><th>Driver</th><th>Loads</th><th>Issued</th><th>Due</th><th class="num">Dispatch fee</th><th>Status</th><th></th></tr></thead><tbody>'+
     shown.map(function(i){
       var refs=i.loadIds.map(function(id){var l=getLoad(id);return l?l.ref:'';}).filter(Boolean).join(', ');
-      return '<tr><td><span class="mono">'+esc(i.no)+'</span></td><td>'+esc(nm(getDrv(i.driverId)))+'</td><td class="small">'+esc(refs)+'</td><td>'+fmtD(i.issued)+'</td><td>'+fmtD(i.due)+'</td><td class="num">'+money(i.total)+'</td><td>'+pill(invStatus(i))+'</td>'+
+      return '<tr><td><span class="mono">'+esc(i.no)+'</span></td><td>'+esc(nm(getDrv(i.driverId)))+'</td><td class="small">'+esc(refs)+'</td><td>'+fmtD(i.issued)+'</td><td>'+fmtD(i.due)+'</td><td class="num">'+money(i.total)+'</td><td>'+pill(invStatus(i))+(invMails[i.id]?'<div class="small muted" title="'+esc(invMailWhen(invMails[i.id][0]))+'">&#9993; Emailed '+esc(fmtD(dayOf(invMails[i.id][0].sent_at)))+'</div>':'')+'</td>'+
         '<td><div class="rowact"><button class="btn sm" type="button" data-action="view-invoice" data-id="'+i.id+'">Open</button></div></td></tr>';}).join('')+
     '</tbody></table></div>'+(q?'':'<div class="pad muted small">Showing the 10 most recent invoices. Type to search all '+db.invoices.length+'.</div>');
 }
@@ -5733,6 +5761,119 @@ function salesDetail(id){
     '<div class="ld-foot"><button class="btn primary" type="button" data-action="sr-agent" data-close="1" data-id="'+a.id+'">Show in the report</button></div>'+
   '</div>',true);
 }
+/* ---------- Invoice email (sent from the accountant's Zoho Mail) ----------
+   The admin / accountant write the email text once (Settings -> Invoice email). "Email to driver" on an invoice
+   shows the filled-in email, then the Supabase Edge Function "zulu-send-invoice" sends it from Zoho with the PDF.
+   The Zoho App Password is a Supabase secret; it is never in this page. Each send is recorded (table invoice_emails). */
+var INV_MAIL_DEF={subject:'Invoice {invoice} · {amount} due {due}',pdf:true,cc:false,ccDisp:true,
+  body:'Hi {driver}\n\nHope you\'re doing well.\n\nPlease find the invoice attached for your reference.\n\nTotal Due: {amount}\nPayment Method: Zelle/Cashapp\nEnroll As Zulu Logistics\nZelle Email/Phone: Zululogistics@gmail.com\nYour prompt payment is appreciated. Send Me Screenshot once it’s completed or if you need anything else.\n\n\nBest regards,\nAllen sam\nAccounts Manager\n675-987-0986'};
+var INV_MAIL_TAGS=[['{driver}','Driver name'],['{first_name}','First name'],['{invoice}','Invoice number'],['{amount}','Total due'],['{due}','Due date'],['{issued}','Issued date'],['{loads}','Loads table'],['{note}','Invoice note']];
+function invMailTpl(){var t=db.settings.invoiceEmail||{};return {subject:t.subject||INV_MAIL_DEF.subject,body:t.body||INV_MAIL_DEF.body,pdf:t.pdf!==false,cc:!!t.cc,ccDisp:t.ccDisp!==false};}
+/* the email of the driver's dispatcher for CC: the work email on the employee, else their portal login email */
+function empMail(id){var e=getEmp(id)||{};if(e.email)return String(e.email).trim();var p=profiles.find(function(x){return x.emp_id===id&&x.email;});return p?String(p.email):'';}
+function newestInvoice(){return db.invoices.slice().sort(function(a,b){return String(b.issued).localeCompare(String(a.issued));})[0]||null;}
+function invMailLoadsHtml(inv){
+  var a=invAdj(inv),ls=inv.loadIds.map(getLoad).filter(Boolean);
+  return '<table class="mailtbl"><tr><th>Load</th><th>Route</th><th class="num">Fee</th></tr>'+ls.map(function(l){return '<tr><td>'+esc(l.ref)+'</td><td>'+esc(l.origin)+' to '+esc(l.dest)+'</td><td class="num">'+money(invFee(inv,l))+'</td></tr>';}).join('')+
+    (a?'<tr><td colspan="2">Adjustment'+(a.label!=='Adjustment'?' · '+esc(a.label):'')+'</td><td class="num">'+(a.amount<0?'−'+money(-a.amount):money(a.amount))+'</td></tr>':'')+'<tr><td colspan="2"><b>Total</b></td><td class="num"><b>'+money(inv.total)+'</b></td></tr></table>';
+}
+function invMailFill(text,inv,mark){
+  var d=getDrv(inv.driverId)||{},name=String(d.name||'');
+  var map={'{driver}':name,'{first_name}':name.split(/\s+/)[0]||'','{invoice}':inv.no||'','{amount}':money(inv.total),'{due}':fmtD(inv.due),'{issued}':fmtD(inv.issued),'{note}':inv.note||'','{company}':db.settings.company||''};
+  return esc(text).replace(/\{[a-z_]+\}/g,function(t){
+    if(t==='{loads}')return invMailLoadsHtml(inv);
+    if(t==='{pay_link}')return '';
+    if(!(t in map))return t;var v=map[t];if(!v)return '';
+    return mark?'<mark class="mfill">'+esc(v)+'</mark>':esc(v);});
+}
+function invMailPreview(inv,mark){
+  var t=invMailTpl(),d=getDrv(inv.driverId)||{};
+  return '<div class="mailprev"><div class="mailhd"><div><span>From</span><b>Accountant\'s Zoho Mail</b></div><div><span>To</span>'+(d.email?'<b>'+esc(d.name||'')+' &lt;'+esc(d.email)+'&gt;</b>':'<b style="color:var(--bad)">No email saved for this driver</b>')+'</div>'+(function(){var cc=[];if(t.ccDisp&&d.dispatcherId){var de=getEmp(d.dispatcherId),dm=empMail(d.dispatcherId);cc.push(dm?'<b>'+esc(nm(de))+' &lt;'+esc(dm)+'&gt;</b> <span class="muted small">(dispatcher)</span>':'<b style="color:var(--warn)">'+esc(nm(de))+' (dispatcher) has no email saved</b>');}
+      if(t.cc)cc.push('<b>Accountant</b>');return cc.length?'<div><span>CC</span>'+cc.join(', ')+'</div>':'';})()+
+    '<div><span>Subject</span><b>'+invMailFill(t.subject,inv,mark)+'</b></div></div><div class="mailtxt">'+invMailFill(t.body,inv,mark)+'</div>'+
+    (t.pdf?'<div class="mailatt"><span aria-hidden="true">&#128206;</span> Invoice '+esc(inv.no)+'.pdf</div>':'')+'</div>';
+}
+var invMails={},invMailsAt=0,invMailsErr='';
+function loadInvMails(force){
+  if(!isOffice()||!sb)return;
+  if(!force&&Date.now()-invMailsAt<60000)return;
+  invMailsAt=Date.now();
+  sb.from('invoice_emails').select('invoice_id,to_email,sent_at,sent_by_name,test').eq('test',false).order('sent_at',{ascending:false}).limit(3000).then(function(r){
+    if(r.error){var was0=invMailsErr;invMailsErr=/relation|does not exist|schema cache|not find/i.test(r.error.message||'')?'missing':'error';if(was0!==invMailsErr&&ui.page==='settings'&&$('modal').hidden&&!document.activeElement.closest('#invMailPanel'))render();return;}
+    invMailsErr='';var m={};(r.data||[]).forEach(function(x){(m[x.invoice_id]=m[x.invoice_id]||[]).push(x);});
+    var was=JSON.stringify(invMails);invMails=m;
+    if(was!==JSON.stringify(m)&&ui.page==='invoices'&&$('modal').hidden)render();
+  });
+}
+function invMailWhen(x){return fmtStamp(x.sent_at)+(x.sent_by_name?' by '+x.sent_by_name:'');}
+function invSendPreview(id,warn){
+  var inv=getInv(id);if(!inv)return;
+  var d=getDrv(inv.driverId)||{},last=(invMails[id]||[])[0];
+  var w=warn||(last?'This invoice was already emailed on '+invMailWhen(last)+' to '+(last.to_email||'the driver')+'. Send it again?':'');
+  openModal(sheetHead('Email invoice '+inv.no+' to '+(d.name||'driver'))+
+    (w?'<div class="banner" style="margin-bottom:12px"><span>'+esc(w)+'</span></div>':'')+
+    (d.email?'':'<div class="banner" style="margin-bottom:12px"><span>This driver has no email saved. Add it in the driver\'s details first.</span></div>')+
+    invMailPreview(inv,true)+
+    '<p class="muted small" style="margin:8px 0 0">Yellow is filled in from this invoice. The driver sees normal text. Change the wording in Settings → Invoice email.</p>'+
+    '<div class="actions" style="justify-content:flex-end;margin-top:14px"><button class="btn" type="button" data-action="inv-send-back" data-id="'+inv.id+'">Cancel</button>'+
+    (d.email?'<button class="btn primary" type="button" data-action="inv-send-go" data-id="'+inv.id+'"'+(w?' data-resend="1"':'')+'>'+(w?'Yes, send again':'Send email')+'</button>':'')+'</div>',true);
+}
+function fnErr(r){
+  var e=r&&r.error;if(!e)return Promise.resolve(null);
+  var c=e.context;
+  if(c&&typeof c.json==='function')return c.json().then(function(j){return j||{error:e.message};},function(){return {error:/Failed to send a request|404/i.test(String(e.message))?'not_deployed':String(e.message||'error')};});
+  return Promise.resolve({error:/Failed to send a request|not found|404/i.test(String(e.message))?'not_deployed':String(e.message||'error')});
+}
+function fnErrText(err,what){return err.error==='not_deployed'?'Email sending is not set up yet: the "zulu-send-invoice" function is not in Supabase.':(err.error||what);}
+function invPdfB64(inv){var tmp=document.createElement('div');tmp.innerHTML=invoiceDoc(inv);return docPdf(tmp.firstChild,'Invoice '+inv.no,'b64').catch(function(){return '';});}
+function invSendGo(btn){
+  var id=btn.dataset.id,inv=getInv(id);if(!inv)return;
+  var resend=btn.dataset.resend==='1',t=invMailTpl();
+  if(navigator.onLine===false){toast('You are offline. Connect to the internet and try again.');return;}
+  btn.disabled=true;btn.textContent=t.pdf?'Making PDF…':'Sending…';
+  (t.pdf?invPdfB64(inv):Promise.resolve('')).then(function(pdf){
+    if(t.pdf&&!pdf)throw {msg:'The PDF could not be made. Try again, or turn off "Attach the invoice PDF" in Settings.'};
+    btn.textContent='Sending…';
+    return sb.functions.invoke('zulu-send-invoice',{body:{invoiceId:id,pdf:pdf,resend:resend}});
+  }).then(function(r){
+    return fnErr(r).then(function(err){
+      if(!err){
+        (invMails[id]=invMails[id]||[]).unshift({invoice_id:id,to_email:r.data&&r.data.to,sent_at:(r.data&&r.data.at)||new Date().toISOString(),sent_by_name:session.name||session.email});
+        toast('Emailed '+inv.no+' to '+((r.data&&r.data.to)||'the driver')+(r.data&&r.data.cc&&r.data.cc.length?' (CC '+r.data.cc.join(', ')+')':''));
+        render();invoiceDetail(id);setTimeout(function(){loadInvMails(true);},1500);return;
+      }
+      if(err.code==='already_sent'){if(err.last){err.last.invoice_id=id;(invMails[id]=invMails[id]||[]).unshift(err.last);}invSendPreview(id);return;}
+      throw {msg:fnErrText(err,'The email was not sent.')};
+    });
+  }).catch(function(e){
+    btn.disabled=false;btn.textContent=resend?'Yes, send again':'Send email';
+    toast(e&&e.msg?e.msg:'The email was not sent. Check the internet and try again.');
+  });
+}
+function invoiceEmailPanel(){
+  if(!isOffice())return '';
+  var t=invMailTpl(),last=newestInvoice();
+  return '<section class="panel" id="invMailPanel"><header><div><h2>Invoice email</h2><div class="muted small">The email drivers get when you press <b>Email to driver</b> on an invoice. It is sent from the accountant\'s Zoho Mail with the invoice PDF attached. Click a tag to put it where the cursor is.</div></div></header>'+
+    '<div class="pad"><div class="iegrid"><div>'+
+      '<label class="field"><span>Subject</span><input id="ieSubj" value="'+esc(t.subject)+'" maxlength="200"></label>'+
+      '<label class="field"><span>Message</span><textarea id="ieBody" rows="16">'+esc(t.body)+'</textarea></label>'+
+      '<div class="ietags">'+INV_MAIL_TAGS.map(function(x){return '<button class="chip" type="button" data-action="ie-tag" data-t="'+x[0]+'" title="'+esc(x[1])+'">'+x[0]+'</button>';}).join('')+'</div>'+
+      '<label class="iechk"><input type="checkbox" id="iePdf"'+(t.pdf?' checked':'')+'> Attach the invoice PDF</label>'+
+      '<label class="iechk"><input type="checkbox" id="ieCcDisp"'+(t.ccDisp?' checked':'')+'> CC the driver\'s dispatcher</label>'+
+      '<label class="iechk"><input type="checkbox" id="ieCc"'+(t.cc?' checked':'')+'> Send a copy to the accountant (CC)</label>'+
+      '<div class="actions" style="margin-top:10px"><button class="btn primary" type="button" data-action="ie-save">Save email text</button><button class="btn" type="button" data-action="ie-reset">Back to the original text</button></div>'+
+      '<div class="iecard"><b>Send a test</b><div class="muted small">Sends '+(last?'invoice '+esc(last.no):'the newest invoice')+' to this address only, with [TEST] in the subject. Nothing is recorded on the invoice.</div>'+
+        '<div class="actions" style="margin-top:8px"><input id="ieTest" type="email" value="'+esc(session.email||'')+'" style="flex:1 1 220px;min-width:0"><button class="btn" type="button" data-action="ie-test"'+(last?'':' disabled')+'>Send test</button></div></div>'+
+      (invMailsErr==='missing'?'<div class="banner" style="margin-top:10px"><span>Run the SQL file migration_2026_11n_invoice_emails.sql in Supabase, so the portal can record which invoices were emailed.</span></div>':'')+
+    '</div><div><div class="muted small" style="margin-bottom:6px">Preview'+(last?' with invoice '+esc(last.no):'')+'</div><div id="iePrev">'+(last?invMailPreview(last,true):'<p class="muted">No invoices yet.</p>')+'</div></div></div></div></section>';
+}
+function ieForm(){return {subject:$('ieSubj').value.trim(),body:$('ieBody').value,pdf:$('iePdf').checked,cc:$('ieCc').checked,ccDisp:$('ieCcDisp').checked};}
+function iePrevUpdate(){
+  var last=newestInvoice(),box=$('iePrev');if(!box||!last)return;
+  var keep=db.settings.invoiceEmail;
+  db.settings.invoiceEmail=ieForm();
+  try{box.innerHTML=invMailPreview(last,true);}finally{db.settings.invoiceEmail=keep;}
+}
 function pDispReports(){
   var disp=staff('Dispatcher');
   var filtered=!!(ui.drFrom||ui.drTo);
@@ -5933,6 +6074,7 @@ function empForm(e,kind){
     field('Full name','name',e.name,{required:true})+
     field('Role','title',e.title,{type:'select',options:['Sales agent','Dispatcher']})+
     field('Phone number','phone',e.phone||'',{type:'tel',hint:'Optional.'})+
+    field('Work email','email',e.email||'',{type:'email',hint:'Optional. Invoice emails to this dispatcher\'s drivers are CC\'d here. If empty, their portal login email is used.'})+
     field('Address','address',((db.empInfo||{})[e.id]||{}).address||'',{type:'textarea',hint:'Optional. Only the admin and the accountant can see it.'})+
     field('Pay basis','payBasis',payBasisOf(e),{type:'select',options:BASES,hint:'Monthly salary: base is paid per month, and pro-rated by days for part months in a custom range. Weekly: base is per week. Hourly: base is per hour, using hours you enter. Commission only: no base.'})+
     field('Base pay (Rs)','base',e.base,{type:'number',step:'1',min:0,required:true,hint:'Rs per month, per week or per hour, depending on the pay basis. Ignored for Commission only.'})+
@@ -5970,9 +6112,9 @@ function loginsPanel(){
 function pSettings(){
   var s=db.settings;
   if(session.role!=='admin'){
-    return head('Settings','Appearance, logins and passwords')+appearancePanel()+loginsPanel();
+    return head('Settings','Appearance, logins and passwords')+appearancePanel()+invoiceEmailPanel()+loginsPanel();
   }
-  return head('Settings','Company details, appearance and logins')+appearancePanel()+
+  return head('Settings','Company details, appearance and logins')+appearancePanel()+invoiceEmailPanel()+
   '<section class="panel"><div class="pad"><form class="form" data-form="settings">'+
     field('Company name','company',s.company,{required:true})+
     field('Phone','phone',s.phone,{type:'tel'})+
@@ -6269,6 +6411,23 @@ var actions={
   'broker-row':function(el){if(Date.now()-lastBtnClick<800)return;openBroker(el.dataset.id);},
   'emp-row':function(el){if(Date.now()-lastBtnClick<800)return;empDetail(el.dataset.id);},
   'team-row':function(el){if(Date.now()-lastBtnClick<800)return;teamDetail(el.dataset.id);},
+  'inv-send':function(el){if(!can('invoice'))return;invSendPreview(el.dataset.id);},
+  'inv-send-back':function(el){invoiceDetail(el.dataset.id);},
+  'inv-send-go':function(el){if(!can('invoice'))return;invSendGo(el);},
+  'ie-tag':function(el){var a=$('ieBody');if(!a)return;var p=a.dataset.pos==null?a.value.length:Math.min(Number(a.dataset.pos),a.value.length),q=a.dataset.end==null?p:Math.min(Math.max(Number(a.dataset.end),p),a.value.length);a.value=a.value.slice(0,p)+el.dataset.t+a.value.slice(q);a.focus();a.selectionStart=a.selectionEnd=p+el.dataset.t.length;a.dataset.pos=a.dataset.end=p+el.dataset.t.length;iePrevUpdate();},
+  'ie-save':function(){if(!isOffice())return;var f=ieForm();if(!f.subject||!f.body.trim()){toast('Write a subject and a message first.');return;}
+    db.settings.invoiceEmail=f;persist();toast('Invoice email text saved');},
+  'ie-reset':function(){$('ieSubj').value=INV_MAIL_DEF.subject;$('ieBody').value=INV_MAIL_DEF.body;$('iePdf').checked=true;$('ieCc').checked=false;$('ieCcDisp').checked=true;iePrevUpdate();toast('Original text put back. Press Save to keep it.');},
+  'ie-test':function(el){if(!isOffice())return;var to=$('ieTest').value.trim();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)){toast('Write a valid email address for the test.');return;}
+    var f=ieForm();if(JSON.stringify(invMailTpl())!==JSON.stringify(f)){toast('Save the email text first, then send the test.');return;}
+    var inv=newestInvoice();if(!inv)return;
+    el.disabled=true;el.textContent=f.pdf?'Making PDF…':'Sending…';
+    (f.pdf?invPdfB64(inv):Promise.resolve('')).then(function(pdf){el.textContent='Sending…';
+      return sb.functions.invoke('zulu-send-invoice',{body:{invoiceId:inv.id,pdf:pdf,testTo:to}});}).then(function(r){return fnErr(r).then(function(err){
+      el.disabled=false;el.textContent='Send test';
+      if(!err){toast('Test email sent to '+to+'. Check that inbox (and Spam).');return;}
+      toast(fnErrText(err,'The test was not sent.'));});})
+    .catch(function(){el.disabled=false;el.textContent='Send test';toast('The test was not sent. Check the internet and try again.');});},
   'invoice-row':function(el){if(Date.now()-lastBtnClick<800)return;invoiceDetail(el.dataset.id);},
   'driver-row':function(el){if(Date.now()-lastBtnClick<800)return;driverInfo(el.dataset.id);},
   'load-detail':function(el){if(Date.now()-lastBtnClick<800)return;/* a quick second click after a button (double-click) does not open the details */loadDetail(el.dataset.id);},
@@ -6768,7 +6927,7 @@ var forms={
     persist();closeModal();render();toast(name+' saved');
   },
   'emp':function(f){
-    var d=formData(f),rec={name:d.name.trim(),title:d.title,phone:String(d.phone||'').trim(),payBasis:d.payBasis||'',base:(d.payBasis==='Commission only'||(!d.payBasis&&d.title==='Dispatcher'))?0:Math.round(numv(d.base)),commissionPct:numv(d.commissionPct)};
+    var d=formData(f),rec={name:d.name.trim(),title:d.title,phone:String(d.phone||'').trim(),email:String(d.email||'').trim(),payBasis:d.payBasis||'',base:(d.payBasis==='Commission only'||(!d.payBasis&&d.title==='Dispatcher'))?0:Math.round(numv(d.base)),commissionPct:numv(d.commissionPct)};
     var isNew=!d.id;
     if(d.id)Object.assign(getEmp(d.id),rec);else{rec.id=uid('e');db.employees.push(rec);}
     var eid=d.id||rec.id,addr=String(d.address||'').trim();
