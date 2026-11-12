@@ -50,6 +50,10 @@ details[open] summary::after{content:"Hide"}
 .copyrow code{font:600 14px ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere;min-width:0}
 .copy{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:13px;flex:none}
 .copy.ok{background:var(--good-soft);color:var(--good);border-color:transparent}
+.allbox{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:14px}
+.allt{font:600 14px/1.6 ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere}
+.allh{font-size:12.5px;color:var(--muted);margin-top:8px}
+.btn.ok{background:var(--good);color:#fff}
 .btn{display:block;width:100%;border:0;border-radius:12px;padding:13px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;margin-top:14px}
 .btn:disabled{opacity:.6;cursor:wait}
 .primary{background:var(--navy);color:#fff}.cashb{background:#00c244;color:#fff}.ghost{background:transparent;border:1px solid var(--line)}
@@ -116,12 +120,15 @@ function render(){
       (hasZ?'<button class="method" type="button" data-go="zelle"><span class="mic zelle">Z</span><span><b>Zelle</b><small>From your bank app</small></span><span class="chev">&#8250;</span></button>':'')+
       (hasC?'<button class="method" type="button" data-go="cash"><span class="mic cash">$</span><span><b>Cash App</b><small>Opens Cash App with the amount filled in</small></span><span class="chev">&#8250;</span></button>':'')+
       '<div class="note n-warn">&#9888; '+co+' only takes payment to the accounts on this page. If anyone asks you to pay a different account, call us first'+(D.phone?' at '+esc(D.phone):'')+'.</div></div>';
-  else if(p==='zelle')inner='<div class="sec"><button class="back" type="button" data-go="choose">&#8249; Other payment methods</button><h2>Pay with Zelle</h2><ol class="steps">'+
+  else if(p==='zelle'){var all='Zelle: '+D.zelle+(D.zelleName?'\nName: '+D.zelleName:'')+'\nAmount: '+Number(D.total).toFixed(2)+'\nMemo: '+D.no;
+    inner='<div class="sec"><button class="back" type="button" data-go="choose">&#8249; Other payment methods</button><h2>Pay with Zelle</h2>'+
+      '<div class="allbox"><div class="allt">'+esc(all).replace(/\n/g,'<br>')+'</div><button class="btn primary" style="margin-top:10px" type="button" data-copy="'+esc(all)+'" data-label="Copy all">Copy all</button>'+
+      '<div class="allh">Then open <b>your bank app</b> &rarr; <b>Zelle</b> &rarr; <b>Send</b>, and fill in the email, amount and memo. The buttons below copy one at a time.</div></div><ol class="steps">'+
       '<li><div>Open your <b>bank app</b> and go to <b>Zelle</b> &rarr; Send.</div></li>'+
       '<li><div>Send to'+cp(D.zelle)+(D.zelleName?'<div style="font-size:13px;color:var(--muted);margin-top:4px">The name must show as <b>'+esc(D.zelleName)+'</b>. If it shows another name, stop and call us.</div>':'')+'</div></li>'+
       '<li><div>Amount'+cp(Number(D.total).toFixed(2))+'</div></li>'+
       '<li><div>In the memo, write the invoice number'+cp(D.no)+'</div></li></ol>'+
-      '<button class="btn primary" type="button" data-go="confirm" data-m="Zelle">I have sent the payment</button></div>';
+      '<button class="btn primary" type="button" data-go="confirm" data-m="Zelle">I have sent the payment</button></div>';}
   else if(p==='cash'){var tag='$'+String(D.cashtag).replace(/[^A-Za-z0-9_-]/g,''),url='https://cash.app/'+tag+'/'+(Number(D.total)||0).toFixed(2);
     inner='<div class="sec"><button class="back" type="button" data-go="choose">&#8249; Other payment methods</button><h2>Pay with Cash App</h2><ol class="steps">'+
       '<li><div>Tap the button. Cash App opens to <b>'+esc(tag)+'</b> with <b>'+money(D.total)+'</b> filled in.<a class="btn cashb" style="margin-top:8px" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">Open Cash App</a></div></li>'+
@@ -145,7 +152,7 @@ function load(){
 }
 document.addEventListener('click',function(e){
   var t;
-  if(t=e.target.closest('[data-copy]')){var v=t.dataset.copy;var ok=function(){t.textContent='Copied';t.classList.add('ok');setTimeout(function(){t.textContent='Copy';t.classList.remove('ok');},1500);};
+  if(t=e.target.closest('[data-copy]')){var v=t.dataset.copy,lab=t.dataset.label||'Copy';var ok=function(){t.textContent=lab==='Copy'?'Copied':'Copied ✓';t.classList.add('ok');setTimeout(function(){t.textContent=lab;t.classList.remove('ok');},1600);};
     try{navigator.clipboard.writeText(v).then(ok,function(){fallback(v);ok();});}catch(x){fallback(v);ok();}return;}
   if(e.target.closest('[data-retry]')){load();return;}
   if(t=e.target.closest('[data-go]')){S.screen=t.dataset.go;if(t.dataset.m)S.method=t.dataset.m;if(t.hasAttribute('data-reset')){S.sent=false;if(D.claim)D.claim.status='seen';}S.err='';render();window.scrollTo(0,0);return;}
