@@ -492,6 +492,15 @@ fieldset.bcontact legend{font-weight:700;font-size:.85rem;padding:0 4px}
 .doc .addr{white-space:pre-line}
 .doc .meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .doc .meta div{display:grid;gap:1px}
+.doc .imeta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.doc .ibox{min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:rgba(120,130,150,.07)}
+.doc .ihd{font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:700;margin-bottom:4px}
+.doc .iname{font-weight:700;font-size:.98rem;line-height:1.3;overflow-wrap:anywhere}
+.doc .iln{font-size:.84rem;color:var(--muted);line-height:1.45;overflow-wrap:break-word}
+.doc .iln.addr{white-space:pre-line}
+@media (max-width:640px){.doc .imeta{grid-template-columns:minmax(0,1fr)}}
+.pdfwrap .doc .imeta{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+.pdfwrap .doc .ibox{background:#f6f8fb!important}
 .doc .meta b,.lbl{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:600}
 .doc table{min-width:560px}
 .doc .totals{margin-left:auto;display:grid;gap:4px;min-width:240px}
@@ -4790,13 +4799,16 @@ function invoiceDoc(inv){
   var ls=inv.loadIds.map(getLoad).filter(Boolean);
   var miles=ls.reduce(function(a,l){return a+l.miles;},0);
   var rate=sumBy(ls,function(l){return l.rate;});
-  var net=daysBetween(inv.issued,inv.due);
   return '<div class="doc">'+
     '<div class="top"><div><div class="lbl">Dispatch fee invoice</div><div class="no">'+esc(inv.no)+'</div></div><div style="text-align:right">'+pill(invStatus(inv))+'</div></div>'+
-    '<div class="meta"><div><b>From</b><span style="font-weight:600">'+esc(s.company)+'</span><span class="addr muted small">'+esc(s.address)+'</span><span class="muted small">'+esc([s.phone,s.email].filter(Boolean).join(' · '))+'</span></div>'+
-    '<div><b>To</b><span style="font-weight:600">'+esc(nm(d,'carrier'))+'</span><span class="muted small">Driver '+esc(nm(d))+'</span><span class="muted small">'+esc([d?d.mc:'',d?d.phone:'',d?d.email:''].filter(Boolean).join(' · '))+'</span></div>'+
-    '<div><b>Dispatch fee</b>'+(d&&d.feePct!=null&&d.feePct!==''?'<span style="font-weight:600">'+esc(d.feePct)+'%</span><span class="muted small">of each load rate</span>':'<span class="muted">Not set</span>')+'</div>'+
-    '<div><b>Issued</b><span>'+fmtD(inv.issued)+'</span><b style="margin-top:6px">Due</b><span>'+fmtD(inv.due)+(net>=0?' ('+(net===0?'on receipt':'Net '+net)+')':'')+'</span></div></div>'+
+    '<div class="imeta">'+
+      '<div class="ibox"><div class="ihd">From</div><div class="iname">'+esc(s.company)+'</div>'+
+        (s.address?'<div class="iln addr">'+esc(s.address)+'</div>':'')+(s.phone?'<div class="iln">'+esc(fmtPhone(s.phone))+'</div>':'')+(s.email?'<div class="iln">'+esc(s.email).replace('@','@<wbr>')+'</div>':'')+'</div>'+
+      '<div class="ibox"><div class="ihd">Bill to</div><div class="iname">'+esc(nm(d,'carrier'))+'</div>'+
+        '<div class="iln">Driver: '+esc(nm(d))+'</div>'+(d&&d.mc?'<div class="iln">'+esc(/^mc/i.test(String(d.mc))?d.mc:'MC '+d.mc)+'</div>':'')+(d&&d.phone?'<div class="iln">'+esc(fmtPhone(d.phone))+'</div>':'')+(d&&d.email?'<div class="iln">'+esc(d.email).replace('@','@<wbr>')+'</div>':'')+'</div>'+
+      '<div class="ibox"><div class="ihd">Loads delivered</div><div class="iname">'+esc(delivRange(ls))+'</div><div class="iln">'+plural(ls.length,'load')+' on this invoice</div>'+
+        '<div class="ihd" style="margin-top:10px">Dispatch fee</div>'+(d&&d.feePct!=null&&d.feePct!==''?'<div class="iname">'+esc(d.feePct)+'%</div><div class="iln">of each load rate</div>':'<div class="iln">Not set</div>')+'</div>'+
+    '</div>'+
     '<div class="tablewrap"><table><thead><tr><th>Load</th><th>Route</th><th>Delivered</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
     ls.map(function(l){var f=invFee(inv,l);return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">Broker: '+esc(brokerName(l))+'</span></div></td><td>'+fmtD(l.delivery)+'</td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(f)+'</td></tr>';}).join('')+
     '</tbody></table></div>'+
@@ -4804,6 +4816,14 @@ function invoiceDoc(inv){
     '<div class="totals"><div><span>Loads</span><span>'+ls.length+'</span></div><div><span>Miles</span><span>'+NUM.format(miles)+'</span></div><div><span>Load rates (for reference)</span><span>'+money(rate)+'</span></div><div class="grand"><span>Dispatch fee due</span><span>'+money(inv.total)+'</span></div></div>'+
     (inv.note?'<div class="invnote" style="white-space:pre-wrap;background:#fff4c2;border:1px solid #f0d36b;border-left:4px solid #e0a800;border-radius:8px;padding:10px 12px;color:#4a3800;margin:4px 0"><b>Note:</b> '+esc(inv.note)+'</div>':'')+
     '<div class="foot">Issued by '+esc(s.company)+' to '+esc(nm(d,'carrier'))+'\n'+esc(s.payInstr)+'</div></div>';
+}
+/* "Oct 27 – Nov 1, 2026": first and last drop-off date of the loads on an invoice */
+function delivRange(ls){
+  var ds=ls.map(function(l){return l.delivery;}).filter(okDate).sort();if(!ds.length)return '—';
+  var a=ds[0],b=ds[ds.length-1];if(a===b)return fmtD(a);
+  var pa=parts(a),pb=parts(b);
+  if(pa[0]===pb[0])return new Date(pa[0],pa[1]-1,pa[2]).toLocaleDateString('en-US',{month:'short',day:'numeric'})+' – '+fmtD(b);
+  return fmtD(a)+' – '+fmtD(b);
 }
 function invoiceText(inv){
   var d=getDrv(inv.driverId),s=db.settings;
