@@ -2203,7 +2203,7 @@ function chatMsgsHtml(id){
 }
 function pInbox(){
   var sub=session.role==='sales'?'One chat for each driver you bring in, with their dispatcher, the admin and the accountant':
-    session.role==='dispatcher'?'One chat for each driver assigned to you, with their sales agent, the admin and the accountant':
+    session.role==='dispatcher'?(myTeam()?'One chat for each driver assigned to you and each driver of '+myTeam().name+', with their sales agent, the admin and the accountant':'One chat for each driver assigned to you, with their sales agent, the admin and the accountant'):
     'One chat for each driver, with the sales agent and the dispatcher';
   return head('Inbox',sub)+
     '<div class="chatwrap'+(chat.sel?' has-sel':'')+'" id="chatWrap"><aside class="chatlist"><div class="chatsearch"><input id="chatSearch" type="search" placeholder="Search names, company or MC" aria-label="Search chats by company, driver, MC or employee name" value="'+esc(chat.q)+'"><span id="chatEmpWrap">'+chatEmpSelectHtml()+'</span></div>'+
@@ -3586,6 +3586,8 @@ function pOverviewLeader(){
   var tinv=db.invoices.filter(function(i){return tdIds[i.driverId]||(i.loadIds||[]).some(function(id){var l=getLoad(id);return l&&mem.indexOf(l.dispatcherId)>-1;});});
   var loads=tl.filter(function(l){return inRange(loadDay(l),r);});
   var sales=loads.filter(isDone);
+  /* team gross = the dispatch fees on the team's delivered loads (the leader's own plus the members') */
+  var myG=sumBy(sales.filter(function(l){return l.dispatcherId===session.empId;}),loadFee),othG=sumBy(sales.filter(function(l){return l.dispatcherId!==session.empId;}),loadFee);
   var sent=tinv.filter(function(i){return inRange(invDay(i),r);});
   var paid=tinv.filter(function(i){return i.status==='Paid'&&inRange(invDay(i),r);});
   var pend=sent.filter(function(i){return i.status==='Sent';});
@@ -3607,7 +3609,7 @@ function pOverviewLeader(){
   return head('Overview',r.label+' · '+t.name+(me?' · '+me.name+' (team leader)':''),ovBar())+
   '<div class="stats">'+
     statTile('No. of loads',String(loads.length),'team loads with delivery in this period')+
-    statTile('No. of sales',String(sales.length),'team loads delivered in this period')+
+    statTile('Team gross',money(myG+othG),'dispatch fees on '+plural(sales.length,'delivered load')+' · you '+money(myG)+' · team members '+money(othG))+
     statTile('Invoices sent',String(sent.length),'issued in this period')+
     statTile('Active drivers',String(activeN),'of '+tdrv.filter(function(d){return !isDead(d);}).length+' team drivers, with a load in this period')+
   '</div>'+
@@ -3642,6 +3644,7 @@ function pOverviewDispatcher(){
     statTile('Invoices paid',String(paid.length),'issued in this period and paid')+
   '</div>'+
   teamOverviewPanel(r)+
+  (myTeam()?teamDriversHtml(myTeam(),'member'):'')+
   driverWeek(wk)+
   '<section class="panel"><header><h2>My loads in this period</h2><div class="actions"><button class="btn sm" type="button" data-action="nav" data-page="myreport">Month and year</button><button class="btn sm" type="button" data-action="nav" data-page="loads">All my loads</button></div></header>'+
     (wk.length?wk.map(loadLine).join(''):'<div class="empty">No loads in this period.</div>')+'</section>';
