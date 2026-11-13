@@ -970,6 +970,41 @@ html[data-mode="dark"] .modeseg button[aria-checked="true"],html[data-skin="dark
 .mmenu .modeseg button,#mMenu .modeseg button{color:var(--muted)}
 .mmenu .modeseg button[aria-checked="true"],#mMenu .modeseg button[aria-checked="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
 
+/* ---------- Attendance ---------- */
+.attbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-left:4px solid #f08a24;border-radius:8px;padding:9px 14px}
+.attbar.done{border-left-color:#1f9d6b}.attbar.islate{border-left-color:var(--bad)}.attbar.isoff{border-left-color:#7c5cd6}
+.attico{width:32px;height:32px;border-radius:8px;background:rgba(240,138,36,.14);display:grid;place-items:center;flex:none;color:#c76a0e}
+.attico svg,.attbtn svg{width:18px;height:18px}
+.atttxt{flex:1;min-width:190px;line-height:1.35}.atttxt .small{display:block}
+#attClock{font-variant-numeric:tabular-nums}
+.attbtn{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.attstat{font-size:.82rem;font-weight:700;padding:.3rem .65rem;border-radius:7px;white-space:nowrap}
+.attstat.ok{background:#dcefe7;color:#0b6b4f}.attstat.late{background:var(--bad-soft);color:var(--bad)}.attstat.off{background:rgba(124,92,214,.13);color:#6a4bc4}
+.attloc{display:inline-block;font-size:.72rem;font-weight:600;padding:.05rem .45rem;border-radius:5px;background:var(--neutral-soft);color:var(--muted);vertical-align:middle}
+.attloc.wfh{background:var(--warn-soft);color:var(--warn)}
+.attholnote{font-size:.86rem;color:#6a4bc4;margin-top:-10px;padding-left:4px}
+.attholbanner{background:rgba(124,92,214,.1);color:#6a4bc4;font-weight:600}
+.pill.att-hol{background:rgba(124,92,214,.13);color:#6a4bc4}.pill.att-abs{background:#3d4b5c;color:#fff}
+.attfine{color:var(--bad);font-weight:700;white-space:nowrap}.attfine.waived{color:var(--muted);text-decoration:line-through;font-weight:500}
+.attbad{color:var(--bad)}
+.atttable tr.attlate td{background:rgba(229,72,77,.07)}
+.atttable tr.attlate td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+.atttable tr.attoff td{opacity:.6}
+.atttable td.num,.atttable th.num{text-align:right}
+.attnote{width:100%;min-width:150px;font-size:.86rem;padding:.3rem .5rem}
+.attnav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.attnav b{min-width:110px;text-align:center}
+.attstats{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.attgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:20px}@media(max-width:900px){.attgrid{grid-template-columns:1fr}}
+.attholi{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}.attholi:last-child{border-bottom:0}.attholi.past{opacity:.55}
+.attholdt{width:48px;text-align:center;background:rgba(124,92,214,.12);color:#6a4bc4;border-radius:8px;padding:4px 0;flex:none}.attholdt b{display:block;font-size:1.05rem}.attholdt span{font-size:.72rem;font-weight:700}
+.attsub{font-size:.95rem;margin:16px 0 4px}
+.attchk{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.chip.attday{display:inline-flex;align-items:center;gap:5px}
+.attlatebox{display:flex;justify-content:space-between;gap:10px;background:var(--bad-soft);color:var(--bad);border-radius:8px;padding:10px 12px;font-weight:600}
+.attnewbox{border-top:2px solid #f08a24;padding-top:10px;display:flex;flex-direction:column;gap:2px}
+.chip.atttab[aria-current]{background:var(--rail);border-color:var(--rail);color:#fff}
+.attnav input[type=date]{width:auto;max-width:170px}
+.attnav .datewrap,.attnav .dateinput{width:auto;display:inline-flex}
 </style>
 
 <div id="root"></div>
@@ -1274,6 +1309,7 @@ async function loadAll(bg){
   } else if(session.role!=='sales'){
     profiles=await fetchAll('profiles','*');
   }
+  await attLoad();
 }
 function usageLoads(){
   if(!loadsLite.length)return db.loads;
@@ -2294,6 +2330,8 @@ var MTABS={admin:['overview','inbox','loads'],accountant:['overview','inbox','lo
 var MSHORT={overview:'Home',salesdash:'My drivers',inbox:'Inbox',loads:'Loads',dailyreport:'Report'};
 function ic(d){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+d+'</svg>';}
 var ICONS={
+  attendance:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
+  myattendance:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
   overview:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
   inbox:'<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
   loads:'<path d="M2.5 6.5h11v9h-11z"/><path d="M13.5 9.5h4l3 3.2v2.8h-7"/><circle cx="6.5" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
@@ -2916,6 +2954,7 @@ function notesShown(){return notes.filter(function(n){return !noteGone(n);});}
 /* the pages where a notification's subject is shown: visiting them counts as seeing it */
 function notePages(n){
   var t=n.link_type||'';
+  if(t==='attendance')return ['attendance','myattendance'];
   if(t==='invoice')return ['invoices'];
   if(t==='payslip'||t==='payrun')return ['payroll','mypay'];
   if(t==='mysalary')return ['myreport','mypay'];
@@ -2990,6 +3029,7 @@ async function loadHealth(){
 }
 function openNoteTarget(n){
   closeModal();
+  if(n.link_type==='attendance'){ui.page=isOffice()?'attendance':'myattendance';ui.attTab=/^\d{4}-\d{2}-\d{2}$/.test(n.link_id||'')?'holidays':'today';render();return;}
   if(n.link_type==='invoice'){
     if(getInv(n.link_id)){ui.page='invoices';render();if(isOffice()){loadPayClaims(true);invoiceDetail(n.link_id);}else viewInvoice(n.link_id);}else toast('That invoice is no longer available.');
   }else if(n.link_type==='payslip'){
@@ -3253,12 +3293,12 @@ function invStatus(inv){if(inv.status==='Sent'&&inv.due<TODAY)return 'Overdue';r
 
 /* ---------- permissions ---------- */
 var ROLES={
-  admin:{label:'Admin',pages:['overview','mreport','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','account']},
-  accountant:{label:'Accountant',pages:['overview','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','account']},
-  dispatcher:{label:'Dispatcher',pages:['overview','myteam','inbox','myreport','loads','invoices','driverov','customers','mypay','account']},
-  sales:{label:'Sales agent',pages:['salesdash','inbox','followups','dailyreport','myreport','mypay','account']}
+  admin:{label:'Admin',pages:['overview','attendance','mreport','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','account']},
+  accountant:{label:'Accountant',pages:['overview','attendance','myattendance','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','account']},
+  dispatcher:{label:'Dispatcher',pages:['overview','myattendance','myteam','inbox','myreport','loads','invoices','driverov','customers','mypay','account']},
+  sales:{label:'Sales agent',pages:['salesdash','myattendance','inbox','followups','dailyreport','myreport','mypay','account']}
 };
-var LABELS={payments:'Driver payments',teams:'Dispatch teams',myteam:'My team',mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
+var LABELS={attendance:'Attendance',myattendance:'My attendance',payments:'Driver payments',teams:'Dispatch teams',myteam:'My team',mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
 function canSetPw(kind){
   var r=session&&session.role;
   if(r==='admin')return true;
@@ -3514,10 +3554,12 @@ function renderNow(){
 }
 function pageHtml(){
   switch(ui.page){
-    case 'overview':return pOverview();
+    case 'overview':return attStrip()+pOverview();
+    case 'attendance':return isOffice()?pAttendance():'';
+    case 'myattendance':return pMyAttendance();
     case 'mreport':return session.role==='admin'?pMonthlyReport():pOverview();
     case 'inbox':return pInbox();
-    case 'salesdash':return pSalesHome();
+    case 'salesdash':return attStrip()+pSalesHome();
     case 'salesreports':return pSalesReports();
     case 'dailyreport':return pDailyReport();
     case 'followups':return session.role==='sales'?pFollowups():'';
@@ -6411,6 +6453,7 @@ function newLoginForm(){
     field('Which team member','empId',(disp[0]||{}).id||'',{type:'select',options:disp.length?disp.map(function(e){return [e.id,e.name+' · '+e.title];}):[['','Add them on the Team page first']],hint:'For Dispatcher and Sales agent logins. Pick a dispatcher for a Dispatcher login and a sales agent for a Sales agent login.'})+
     field('Name','name','',{required:true})+
     field('Email','email','',{type:'email',required:true})+
+    attLoginFields()+
     field('Starting password','pw','',{type:'password',auto:'new-password',required:true,hint:'At least 8 characters. Share it privately; it is never shown again. The person can change it from My account, or use Forgot your password.'})+
     '<div class="formfoot"><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Create login</button></div></form>');
   bindNewLogin();
@@ -7088,7 +7131,7 @@ var forms={
       var needConfirm=!r.data.session;
       return (role==='sales'?sb.rpc('zulu_create_sales_profile',{p_user:u.id,p_emp:d.empId,p_name:String(d.name||'').trim(),p_email:email}):sb.rpc('admin_create_profile',{p_user:u.id,p_role:role,p_emp:role==='dispatcher'?d.empId:'',p_name:String(d.name||'').trim(),p_email:email})).then(function(r2){
         if(r2.error){fail(r2.error.message);return;}
-        return fetchAll('profiles','*').then(function(x){profiles=x;closeModal();render();
+        attAfterLogin(u.id,d);return fetchAll('profiles','*').then(function(x){profiles=x;closeModal();render();
           toast(needConfirm?'Login created, but Supabase is asking for email confirmation. Turn off "Confirm email" in Supabase.':'Login created for '+email);});
       });
     },function(){fail('Could not reach the database.');});
@@ -7260,6 +7303,277 @@ document.addEventListener('click',function(e){
   if(el.tagName==='BUTTON')lastBtnClick=Date.now();
   if(fn){e.preventDefault();fn(el);}
 });
+
+/* =====================================================================
+   ATTENDANCE (needs migration_2026_11_attendance.sql in Supabase)
+   - Check-in time comes from the server (att_check_in), not the computer.
+   - Office logins can only check in from the office IPs set in Settings.
+   - Late => reason required, fine saved, admin/accountant notified.
+   ===================================================================== */
+var att={ok:null,err:'',set:null,members:[],hol:[],rows:[],busy:false};
+var ATT_DN=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+var ATT_MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+function attTzOk(z){if(!z)return false;try{new Intl.DateTimeFormat('en-US',{timeZone:z});return true;}catch(e){return false;}}
+function attTz(){var z=att.set&&att.set.tz;return attTzOk(z)?z:coTz();}
+function attToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:attTz(),year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+function attTzName(){var z=attTz();return ({'Asia/Karachi':'Pakistan time','America/New_York':'New York time','America/Chicago':'Chicago time','America/Denver':'Denver time','America/Los_Angeles':'Los Angeles time','Asia/Dubai':'Dubai time','Europe/London':'London time'})[z]||z;}
+var ATT_TZS=[['Asia/Karachi','Pakistan (Asia/Karachi)'],['America/New_York','US Eastern (America/New_York)'],['America/Chicago','US Central (America/Chicago)'],['America/Denver','US Mountain (America/Denver)'],['America/Los_Angeles','US Pacific (America/Los_Angeles)'],['Asia/Dubai','UAE (Asia/Dubai)'],['Europe/London','UK (Europe/London)']];
+function attYmShift(ym,n){var y=+ym.slice(0,4),m=+ym.slice(5,7)-1+n;y+=Math.floor(m/12);m=((m%12)+12)%12;return y+'-'+pad(m+1);}
+function attFromDay(){return attYmShift(attToday().slice(0,7),-3)+'-01';}
+function attDow(day){return new Date(day+'T12:00:00Z').getUTCDay();}
+function attAddDays(day,n){var d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+function attLong(day){var d=new Date(day+'T12:00:00Z');return ATT_DN[d.getUTCDay()]+', '+d.getUTCDate()+' '+ATT_MN[d.getUTCMonth()]+' '+d.getUTCFullYear();}
+function attShort(day){var d=new Date(day+'T12:00:00Z');return ATT_DN[d.getUTCDay()].slice(0,3)+', '+d.getUTCDate()+' '+ATT_MN[d.getUTCMonth()].slice(0,3);}
+function attYmLabel(ym){return ATT_MN[+ym.slice(5,7)-1]+' '+ym.slice(0,4);}
+function att12(t){if(!t)return '—';var p=String(t).split(':'),h=+p[0],m=p[1]||'00';return (h%12||12)+':'+m.slice(0,2)+' '+(h>=12?'PM':'AM');}
+function attNowClock(){try{return new Intl.DateTimeFormat('en-US',{timeZone:attTz(),hour:'numeric',minute:'2-digit'}).format(new Date());}catch(e){return '';}}
+function attWeekend(day){return !!att.set&&(att.set.weekend||[]).indexOf(attDow(day))>-1;}
+function attHol(day){return att.hol.find(function(h){return h.day===day;})||null;}
+function attOff(day){return attWeekend(day)||!!attHol(day);}
+function attRow(uid,day){return att.rows.find(function(r){return r.user_id===uid&&r.day===day;})||null;}
+function attMe(){return session?att.members.find(function(m){return m.user_id===session.uid;})||null:null;}
+function attProfile(uid){return profiles.find(function(p){return p.user_id===uid;})||null;}
+function attGone(uid){return !attProfile(uid)&&!(session&&uid===session.uid);}
+function attName(uid){var p=attProfile(uid);if(p)return p.name||p.email;if(session&&uid===session.uid)return session.name;
+  var r=att.rows.find(function(x){return x.user_id===uid&&x.emp_name;});return (r?r.emp_name:'Former employee')+' (login removed)';}
+function attRoleLabel(uid){var p=attProfile(uid);return p&&ROLES[p.role]?ROLES[p.role].label:(attGone(uid)?'No longer tracked':'');}
+function attTracked(){return att.members.filter(function(m){return m.track&&attProfile(m.user_id);}).sort(function(a,b){return attName(a.user_id).localeCompare(attName(b.user_id));});}
+function attGoneIn(pred){var seen={},out=[];att.rows.forEach(function(r){if(!seen[r.user_id]&&attGone(r.user_id)&&pred(r)){seen[r.user_id]=1;out.push({user_id:r.user_id,track:false,loc:'',gone:true});}});
+  return out.sort(function(a,b){return attName(a.user_id).localeCompare(attName(b.user_id));});}
+function attLoc(w){return w==='wfh'?'<span class="attloc wfh">WFH</span>':w==='office'?'<span class="attloc">Office</span>':'';}
+function attPill(r,day){
+  if(!r){if(attHol(day))return '<span class="pill att-hol">Holiday</span>';if(attWeekend(day))return '<span class="pill att-hol">Weekend</span>';return '<span class="pill p-booked">'+(day===attToday()?'Not in yet':'Not marked')+'</span>';}
+  return {ontime:'<span class="pill p-paid">On time</span>',late:'<span class="pill p-overdue">Late</span>',absent:'<span class="pill att-abs">Absent</span>',leave:'<span class="pill p-transit">Leave</span>'}[r.status]||'';
+}
+function attFine(r){return r&&Number(r.fine)?'<span class="attfine'+(r.waived?' waived':'')+'">'+rs(r.fine)+'</span>':'—';}
+async function attLoad(){
+  if(!sb||!session)return;
+  try{
+    var r=await Promise.all([
+      sb.from('att_settings').select('*').eq('id',1).maybeSingle(),
+      sb.from('att_holidays').select('*').order('day'),
+      sb.from('att_members').select('*'),
+      sb.from('attendance').select('*').gte('day',attFromDay()).order('day',{ascending:false}).limit(10000)
+    ]);
+    var bad=r.find(function(x){return x.error;});
+    if(bad){att.ok=false;att.err=bad.error.message||'error';return;}
+    att.set=r[0].data;att.hol=r[1].data||[];att.members=r[2].data||[];att.rows=r[3].data||[];att.ok=!!att.set;att.err=att.set?'':'Settings row missing';
+  }catch(e){att.ok=false;att.err=(e&&e.message)||'network error';}
+}
+function attSetupHtml(){
+  return '<section class="panel"><div class="pad"><h2 style="margin-top:0">Attendance is not set up yet</h2><p class="muted">Run <b>migration_2026_11_attendance.sql</b> once in Supabase (SQL Editor), then reload the portal.</p>'+(att.err?'<p class="muted small">Details: '+esc(att.err)+'</p>':'')+'</div></section>';
+}
+
+/* ---------- compact check-in bar (Overview / My drivers / My attendance) ---------- */
+function attStrip(){
+  if(!att.ok)return '';
+  var m=attMe();if(!m||!m.track)return '';
+  var today=attToday(),r=attRow(session.uid,today),s=att.set;
+  var up=att.hol.filter(function(h){return h.day>today;})[0];
+  var cls='',right;
+  if(r&&r.check_time){cls=r.status==='late'?'islate':'done';right=r.status==='late'?'<span class="attstat late">Late · '+r.late_min+' min · '+rs(r.fine)+'</span>':'<span class="attstat ok">✓ On time</span>';}
+  else if(r){cls='isoff';right='<span class="attstat off">'+(r.status==='leave'?'Leave':'Absent')+(r.marked_by?' · by '+esc(r.marked_by):'')+'</span>';}
+  else if(attOff(today)){cls='isoff';var hh=attHol(today);right='<span class="attstat off">'+(hh?esc(hh.name):'Weekend')+' — day off</span>';}
+  else right='<button class="btn primary sm attbtn" type="button" data-action="att-checkin"'+(att.busy?' disabled':'')+'>'+ic(ICONS.attendance)+'Check in</button>';
+  var line=r&&r.check_time?'Checked in at <b>'+att12(r.check_time)+'</b>'+(r.status==='late'&&r.note?' · '+esc(r.note):''):'<b id="attClock">'+attNowClock()+'</b> '+esc(attTzName())+' · Office time '+att12(s.office_start)+' · late after '+s.grace_min+' min';
+  return '<div class="attbar '+cls+'"><span class="attico">'+ic(ICONS.attendance)+'</span>'+
+    '<div class="atttxt"><b>Attendance</b> <span class="muted">· '+attShort(today)+'</span><span class="small muted">'+line+'</span></div>'+
+    attLoc(m.loc)+right+'</div>'+
+    (up?'<div class="attholnote">Upcoming holiday: <b>'+esc(up.name)+'</b> — '+attShort(up.day)+(up.declared_by?' (declared by '+esc(up.declared_by)+')':'')+'</div>':'');
+}
+setInterval(function(){var c=document.getElementById('attClock');if(c)c.textContent=attNowClock();},15000);
+function attCheckIn(note){
+  if(att.busy)return;att.busy=true;
+  return sb.rpc('att_check_in',{p_note:note||''}).then(async function(r){
+    att.busy=false;
+    if(r.error){toast(r.error.message);render();return;}
+    var d=r.data||{};
+    if(d.need_reason){attLateForm(d);return;}
+    closeModal();await attLoad();render();
+    toast(d.already?'You already checked in today.':d.status==='late'?'Checked in late at '+att12(d.check_time)+'. Admin and accountant were notified.':'Checked in at '+att12(d.check_time)+' — on time.');
+  },function(){att.busy=false;toast('Could not reach the database.');});
+}
+function attLateForm(d){
+  openModal(sheetHead('You are late today')+
+    '<form class="form" data-form="att-late" style="grid-template-columns:1fr">'+
+    '<div class="attlatebox"><span>'+d.late_min+' minutes late (now '+att12(d.check_time)+')</span><b>Fine '+rs(d.fine)+'</b></div>'+
+    '<div class="chips" id="attReasons">'+['Traffic jam','Car broke down','Heavy rain','Family emergency','Doctor appointment','Internet was down'].map(function(x){return '<button class="chip atttab" type="button" data-action="att-reason" data-v="'+esc(x)+'">'+esc(x)+'</button>';}).join('')+'</div>'+
+    field('Reason for being late','note','',{type:'textarea',required:true,full:true,hint:'Admin and accountant will see this.'})+
+    '<div class="formfoot"><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Check in</button></div></form>');
+}
+
+/* ---------- My attendance (everyone who is tracked) ---------- */
+function attMonth(uid,ym){
+  var o={on:0,late:0,abs:0,leave:0,lm:0,fine:0,arr:[],days:[]},today=attToday(),y=+ym.slice(0,4),m=+ym.slice(5,7),n=new Date(Date.UTC(y,m,0)).getUTCDate();
+  var mem=att.members.find(function(x){return x.user_id===uid;}),since=mem&&mem.since||'';
+  for(var i=1;i<=n;i++){var day=ym+'-'+pad(i);if(day>today)break;if(since&&day<since&&!attRow(uid,day))continue;if(!mem&&attGone(uid)&&!attRow(uid,day))continue;o.days.push(day);var r=attRow(uid,day);if(!r)continue;
+    if(r.check_time){var p=r.check_time.split(':');o.arr.push(+p[0]*60+ +p[1]);}
+    if(r.status==='ontime')o.on++;else if(r.status==='late'){o.late++;o.lm+=r.late_min||0;if(!r.waived)o.fine+=Number(r.fine)||0;}else if(r.status==='absent')o.abs++;else if(r.status==='leave')o.leave++;}
+  o.avg=o.arr.length?(function(v){return att12(pad(Math.floor(v/60))+':'+pad(v%60));})(Math.round(o.arr.reduce(function(a,b){return a+b;},0)/o.arr.length)):'—';
+  o.work=o.days.filter(function(d){return !attOff(d)&&!(d===today&&!attRow(uid,d));}).length;
+  o.pct=o.work?Math.round(o.on/o.work*100):0;return o;
+}
+function attMonthNav(ym,key){
+  var cur=attToday().slice(0,7),min=attFromDay().slice(0,7);
+  return '<div class="attnav"><button class="btn sm" type="button" data-action="att-ym" data-k="'+key+'" data-n="-1"'+(ym<=min?' disabled':'')+'>‹</button><b>'+attYmLabel(ym)+'</b><button class="btn sm" type="button" data-action="att-ym" data-k="'+key+'" data-n="1"'+(ym>=cur?' disabled':'')+'>›</button></div>';
+}
+function pMyAttendance(){
+  if(!att.ok)return head('My attendance','')+attSetupHtml();
+  var m=attMe();
+  if(!m||!m.track)return head('My attendance','')+'<section class="panel"><div class="pad muted">Attendance is not turned on for your login.</div></section>';
+  var ym=ui.attMyYm||(ui.attMyYm=attToday().slice(0,7)),o=attMonth(session.uid,ym);
+  return head('My attendance','Your check-in times, late days and fines',attMonthNav(ym,'attMyYm'))+
+    (ym===attToday().slice(0,7)?attStrip():'')+
+    '<div class="stats attstats">'+statTile('Days present',String(o.on+o.late),o.work+' working days')+statTile('On time',String(o.on),o.pct+'% of working days')+statTile('Late',String(o.late),o.lm+' min in total')+statTile('Leave / absent',String(o.leave+o.abs),'')+statTile('Average arrival',o.avg,'')+statTile('Fines',rs(o.fine),'waived fines not counted')+'</div>'+
+    '<section class="panel"><div class="tablewrap"><table class="atttable"><thead><tr><th>Date</th><th>Check-in</th><th>Status</th><th>Fine</th><th>Note</th></tr></thead><tbody>'+
+    o.days.slice().reverse().map(function(d){var r=attRow(session.uid,d),h=attHol(d);
+      if(!r&&(h||attWeekend(d)))return '<tr class="attoff"><td>'+attShort(d)+'</td><td>—</td><td>'+attPill(r,d)+'</td><td>—</td><td class="muted small">'+(h?esc(h.name)+(h.declared_by?' · declared by '+esc(h.declared_by):''):'')+'</td></tr>';
+      return '<tr class="'+(r&&r.status==='late'?'attlate':'')+'"><td>'+attShort(d)+'</td><td>'+(r&&r.check_time?'<b>'+att12(r.check_time)+'</b> '+attLoc(r.location):'—')+'</td><td>'+attPill(r,d)+'</td><td>'+attFine(r)+'</td><td class="small">'+esc(r&&r.note||'')+'</td></tr>';}).join('')+
+    '</tbody></table></div></section>';
+}
+
+/* ---------- Attendance (admin / accountant) ---------- */
+function pAttendance(){
+  if(!att.ok)return head('Attendance','')+attSetupHtml();
+  var tab=ui.attTab||'today',T=[['today','Daily'],['month','Monthly report'],['holidays','Holidays'],['people','People'],['settings','Settings']];
+  return head('Attendance','Check-ins, late arrivals, fines, leave and holidays')+
+    '<div class="chips">'+T.map(function(t){return '<button class="chip atttab" type="button" data-action="att-tab" data-t="'+t[0]+'"'+(tab===t[0]?' aria-current="page"':'')+'>'+t[1]+'</button>';}).join('')+'</div>'+
+    ({today:attDailyHtml,month:attMonthlyHtml,holidays:attHolidaysHtml,people:attPeopleHtml,settings:attSettingsHtml}[tab]||attDailyHtml)();
+}
+function attDailyHtml(){
+  var today=attToday(),day=ui.attDay&&ui.attDay<=today?ui.attDay:(ui.attDay=today),off=attOff(day),h=attHol(day);
+  var list=attTracked().filter(function(m){return !m.since||m.since<=day||attRow(m.user_id,day);}).concat(attGoneIn(function(r){return r.day===day;}));
+  var rows=list.map(function(m){return {m:m,r:attRow(m.user_id,day)};});
+  var c=function(s){return rows.filter(function(x){return x.r&&x.r.status===s;}).length;};
+  var fines=rows.reduce(function(a,x){return a+(x.r&&!x.r.waived?Number(x.r.fine)||0:0);},0);
+  return '<div class="stats attstats">'+statTile('Tracked',String(rows.filter(function(x){return !x.m.gone;}).length),'logins')+statTile('On time',String(c('ontime')),'')+statTile('Late',String(c('late')),'')+statTile('Absent / leave',c('absent')+' / '+c('leave'),'')+statTile(day===today?'Not in yet':'Not marked',String(off?0:rows.filter(function(x){return !x.r;}).length),'')+statTile('Fines',rs(fines),'this day')+'</div>'+
+  '<section class="panel"><header><div class="attnav"><button class="btn sm" type="button" data-action="att-day" data-n="-1">‹</button><input type="date" id="attDayPick" value="'+day+'" max="'+today+'"><button class="btn sm" type="button" data-action="att-day" data-n="1"'+(day>=today?' disabled':'')+'>›</button>'+(day!==today?'<button class="btn sm" type="button" data-action="att-day" data-n="0">Today</button>':'')+'<b>'+attLong(day)+'</b></div><span class="muted small">Late rows are red · type a note and press Enter to save</span></header>'+
+  (off?'<div class="pad attholbanner">'+(h?'Holiday — '+esc(h.name)+(h.declared_by?' (declared by '+esc(h.declared_by)+')':''):'Weekend')+'</div>':'')+
+  '<div class="tablewrap"><table class="atttable"><thead><tr><th>Employee</th><th>Check-in</th><th>Status</th><th>Late</th><th>Fine</th><th>Note / reason</th><th></th></tr></thead><tbody>'+
+  (rows.length?rows.map(function(x){var r=x.r,u=x.m.user_id;
+    return '<tr class="'+(r&&r.status==='late'?'attlate':'')+'"><td><b>'+esc(attName(u))+'</b><div class="muted small">'+esc(attRoleLabel(u))+' '+attLoc(x.m.loc)+'</div></td>'+
+    '<td>'+(r&&r.check_time?'<b>'+att12(r.check_time)+'</b>':'—')+'</td><td>'+attPill(r,day)+'</td><td>'+(r&&r.late_min?'<b class="attbad">'+r.late_min+' min</b>':'—')+'</td><td>'+attFine(r)+'</td>'+
+    '<td>'+(r?'<input class="attnote" data-id="'+esc(r.id)+'" value="'+esc(r.note||'')+'" placeholder="Add a note…">':'<span class="muted">—</span>')+'</td>'+
+    '<td><div class="rowact">'+attActs(u,r,day,off)+'</div></td></tr>';}).join(''):'<tr><td colspan="7" class="muted">Nobody is tracked yet. Turn people on in the People tab.</td></tr>')+
+  '</tbody></table></div></section>';
+}
+function attActs(uid,r,day,off){
+  if(!r)return off||attGone(uid)?'':'<button class="btn sm danger" type="button" data-action="att-mark" data-s="absent" data-u="'+esc(uid)+'">Absent</button><button class="btn sm" type="button" data-action="att-mark" data-s="leave" data-u="'+esc(uid)+'">Leave</button>';
+  if(r.status==='absent'||r.status==='leave')return '<button class="btn sm" type="button" data-action="att-undo" data-id="'+esc(r.id)+'" title="Marked by '+esc(r.marked_by||'')+'">Undo</button>';
+  if(r.status==='late')return '<button class="btn sm" type="button" data-action="att-waive" data-id="'+esc(r.id)+'">'+(r.waived?'Restore fine':'Waive fine')+'</button>';
+  return '';
+}
+function attMonthlyData(ym){return attTracked().concat(attGoneIn(function(r){return r.day.slice(0,7)===ym;})).map(function(m){var o=attMonth(m.user_id,ym);o.m=m;return o;});}
+function attMonthlyHtml(){
+  var ym=ui.attYm||(ui.attYm=attToday().slice(0,7)),data=attMonthlyData(ym);
+  var T=data.reduce(function(a,o){['on','late','abs','leave','lm','fine'].forEach(function(k){a[k]+=o[k];});return a;},{on:0,late:0,abs:0,leave:0,lm:0,fine:0});
+  return '<section class="panel"><header>'+attMonthNav(ym,'attYm')+'<div class="rowact"><span class="muted small">Click a name for the full month</span><button class="btn sm" type="button" data-action="att-copy">Copy for Excel</button></div></header>'+
+  '<div class="tablewrap"><table class="atttable"><thead><tr><th>Employee</th><th class="num">Present</th><th class="num">On time</th><th class="num">Late</th><th class="num">Absent</th><th class="num">Leave</th><th class="num">Late min</th><th>Avg arrival</th><th class="num">Fines</th></tr></thead><tbody>'+
+  data.map(function(o){return '<tr class="rowlink'+(o.late>=5?' attlate':'')+'" data-action="att-person" data-u="'+esc(o.m.user_id)+'" title="Show the full month"><td><b>'+esc(attName(o.m.user_id))+'</b><div class="muted small">'+esc(attRoleLabel(o.m.user_id))+' '+attLoc(o.m.loc)+'</div></td><td class="num"><b>'+(o.on+o.late)+'</b></td><td class="num">'+o.on+'</td><td class="num attbad"><b>'+o.late+'</b></td><td class="num">'+o.abs+'</td><td class="num">'+o.leave+'</td><td class="num">'+o.lm+'</td><td>'+o.avg+'</td><td class="num"><span class="attfine">'+rs(o.fine)+'</span></td></tr>';}).join('')+
+  '</tbody><tfoot><tr><td><b>Total</b></td><td class="num"><b>'+(T.on+T.late)+'</b></td><td class="num">'+T.on+'</td><td class="num">'+T.late+'</td><td class="num">'+T.abs+'</td><td class="num">'+T.leave+'</td><td class="num">'+T.lm+'</td><td></td><td class="num"><b>'+rs(T.fine)+'</b></td></tr></tfoot></table></div>'+
+  '<div class="pad muted small">Red rows: 5 or more late days this month. Waived fines are not counted.</div></section>';
+}
+function attPersonModal(uid){
+  var ym=ui.attYm||attToday().slice(0,7),o=attMonth(uid,ym);
+  openModal(sheetHead(attName(uid)+' · '+attYmLabel(ym))+
+    '<div class="stats attstats" style="margin:10px 0">'+statTile('Present',String(o.on+o.late),'')+statTile('Late',String(o.late),o.lm+' min')+statTile('Average arrival',o.avg,'')+statTile('Fines',rs(o.fine),'')+'</div>'+
+    '<div class="tablewrap"><table class="atttable" style="min-width:0"><thead><tr><th>Date</th><th>Check-in</th><th>Status</th><th>Fine</th><th>Note</th></tr></thead><tbody>'+
+    o.days.slice().reverse().map(function(d){var r=attRow(uid,d),h=attHol(d);return '<tr class="'+(r&&r.status==='late'?'attlate':(!r&&attOff(d)?'attoff':''))+'"><td>'+attShort(d)+'</td><td>'+(r&&r.check_time?att12(r.check_time)+' '+attLoc(r.location):'—')+'</td><td>'+attPill(r,d)+'</td><td>'+attFine(r)+'</td><td class="small muted">'+esc(r?(r.note||''):(h?h.name:''))+'</td></tr>';}).join('')+
+    '</tbody></table></div>',true);
+}
+function attHolidaysHtml(){
+  var today=attToday(),up=att.hol.filter(function(h){return h.day>=today;}),past=att.hol.filter(function(h){return h.day<today;}).reverse().slice(0,12);
+  var li=function(h,p){return '<div class="attholi'+(p?' past':'')+'"><div class="attholdt"><b>'+(+h.day.slice(8,10))+'</b><span>'+ATT_MN[+h.day.slice(5,7)-1].slice(0,3)+'</span></div><div style="flex:1"><b>'+esc(h.name)+'</b><div class="muted small">'+ATT_DN[attDow(h.day)]+(h.declared_by?' · declared by '+esc(h.declared_by):'')+(h.day===today?' · <b>today</b>':'')+'</div></div>'+(p?'':'<button class="btn sm danger" type="button" data-action="att-hol-del" data-d="'+h.day+'">Cancel</button>')+'</div>';};
+  return '<div class="attgrid"><section class="panel"><header><h2>Declare a holiday</h2></header><div class="pad"><form class="form" data-form="att-holiday" style="grid-template-columns:1fr">'+
+    field('Date','day','',{type:'date',required:true})+field('Name','name','',{required:true,hint:'e.g. Thanksgiving, Eid, Company holiday'})+
+    field('Tell everyone','notify','yes',{type:'select',options:[['yes','Yes — send a notification to all tracked logins'],['no','No']]})+
+    '<div class="formfoot"><button class="btn primary" type="submit">Declare holiday</button></div></form>'+
+    '<p class="muted small">Nobody needs to check in that day — no late and no absent. Weekly days off ('+(att.set.weekend||[]).map(function(d){return ATT_DN[d].slice(0,3);}).join(', ')+') are already off.</p></div></section>'+
+    '<section class="panel"><header><h2>Upcoming ('+up.length+')</h2></header><div class="pad">'+(up.length?up.map(function(h){return li(h,false);}).join(''):'<p class="muted">No holidays declared.</p>')+
+    (past.length?'<h3 class="attsub">Past</h3>'+past.map(function(h){return li(h,true);}).join(''):'')+'</div></section></div>';
+}
+function attPeopleHtml(){
+  var list=att.members.filter(function(m){return attProfile(m.user_id);}).sort(function(a,b){return attName(a.user_id).localeCompare(attName(b.user_id));});
+  return '<section class="panel"><header><div><h2>Who is tracked</h2><div class="muted small">Every new login is tracked automatically (admins are not). Office logins can only check in from the office network; WFH logins can check in from anywhere.</div></div></header>'+
+  '<div class="tablewrap"><table class="atttable"><thead><tr><th>Name</th><th>Role</th><th>Attendance</th><th>Works from</th><th>Tracked since</th></tr></thead><tbody>'+
+  list.map(function(m){return '<tr><td><b>'+esc(attName(m.user_id))+'</b></td><td>'+esc(attRoleLabel(m.user_id))+'</td>'+
+    '<td><label class="attchk"><input type="checkbox" class="atttrack" data-u="'+esc(m.user_id)+'"'+(m.track?' checked':'')+'> '+(m.track?'Tracked':'Off')+'</label></td>'+
+    '<td><select class="attlocsel" data-u="'+esc(m.user_id)+'"'+(m.track?'':' disabled')+'><option value="office"'+(m.loc==='office'?' selected':'')+'>Office</option><option value="wfh"'+(m.loc==='wfh'?' selected':'')+'>Work from home</option></select></td><td class="muted">'+esc(m.since||'')+'</td></tr>';}).join('')+
+  '</tbody></table></div></section>';
+}
+function attSettingsHtml(){
+  var s=att.set,wk=s.weekend||[];
+  return '<section class="panel"><div class="pad"><form class="form" data-form="att-settings">'+
+    field('Attendance timezone','tz',attTzOk(s.tz)?s.tz:'',{type:'select',options:[['','Same as company timezone ('+coTz()+')']].concat(ATT_TZS,attTzOk(s.tz)&&!ATT_TZS.some(function(x){return x[0]===s.tz;})?[[s.tz,s.tz]]:[]),hint:'Office time, late, and what counts as today use this timezone. Loads and invoices keep the company timezone.'})+
+    field('Office start time','office_start',String(s.office_start||'09:00').slice(0,5),{type:'time',required:true,hint:'In the attendance timezone above.'})+
+    field('Grace period (minutes)','grace_min',s.grace_min,{type:'number',min:0,required:true,hint:'Check-ins up to start time + grace are on time.'})+
+    field('Late fine type','fine_type',s.fine_type,{type:'select',options:[['flat','Flat amount per late day'],['per_min','Amount per minute late'],['slab','Slabs by minutes late']]})+
+    field('Flat fine (Rs)','fine_flat',s.fine_flat,{type:'number',min:0})+
+    field('Fine per minute (Rs)','fine_per_min',s.fine_per_min,{type:'number',min:0})+
+    field('Slab: 1–30 min late (Rs)','slab1',s.slab1,{type:'number',min:0})+
+    field('Slab: 31–60 min late (Rs)','slab2',s.slab2,{type:'number',min:0})+
+    field('Slab: over 60 min late (Rs)','slab3',s.slab3,{type:'number',min:0})+
+    '<div class="field full"><span>Weekly days off</span><div class="chips">'+[1,2,3,4,5,6,0].map(function(d){return '<label class="chip attday"><input type="checkbox" name="wk'+d+'"'+(wk.indexOf(d)>-1?' checked':'')+'> '+ATT_DN[d].slice(0,3)+'</label>';}).join('')+'</div></div>'+
+    field('Office internet IP addresses','office_ips',(s.office_ips||[]).join(', '),{full:true,hint:'Separate with commas. Office logins can only check in from these. Leave empty to allow check-in from anywhere. Find the office IP by searching "what is my IP" on an office computer.'})+
+    field('Late alerts to admin','notify_admin',s.notify_admin?'yes':'no',{type:'select',options:[['yes','Yes'],['no','No']]})+
+    field('Late alerts to accountant','notify_accountant',s.notify_accountant?'yes':'no',{type:'select',options:[['yes','Yes'],['no','No']]})+
+    '<div class="formfoot"><span class="muted small" style="margin-right:auto">New rules apply to future check-ins; past fines stay as they are.</span><button class="btn primary" type="submit">Save attendance settings</button></div></form></div></section>';
+}
+async function attWrite(p,okMsg){
+  var r=await p;
+  if(r.error){toast(r.error.message);return false;}
+  await attLoad();render();if(okMsg)toast(okMsg);return true;
+}
+/* new login: save the attendance choices from the Add login form */
+function attAfterLogin(uid,d){
+  if(!uid||!d||d.attTrack==null)return;
+  sb.from('att_members').upsert({user_id:uid,track:d.attTrack==='yes',loc:d.attLoc==='wfh'?'wfh':'office'}).then(function(r){if(!r.error)attLoad();});
+}
+function attLoginFields(){
+  return '<div class="field full attnewbox"><b>Attendance</b><span class="muted small">Starts today for this login.</span></div>'+
+    field('Track attendance','attTrack','yes',{type:'select',options:[['yes','Yes'],['no','No']]})+
+    field('Works from','attLoc','office',{type:'select',options:[['office','Office — check in only from office internet'],['wfh','Work from home — check in from anywhere']]});
+}
+
+Object.assign(actions,{
+  'att-checkin':function(){attCheckIn('');},
+  'att-reason':function(el){var t=document.querySelector('#modal textarea[name="note"]');if(t)t.value=el.dataset.v;document.querySelectorAll('#attReasons .chip').forEach(function(b){if(b===el)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');});},
+  'att-tab':function(el){ui.attTab=el.dataset.t;render();},
+  'att-day':function(el){var n=+el.dataset.n,t=attToday();ui.attDay=n===0?t:attAddDays(ui.attDay||t,n);if(ui.attDay>t)ui.attDay=t;render();},
+  'att-ym':function(el){var k=el.dataset.k;ui[k]=attYmShift(ui[k]||attToday().slice(0,7),+el.dataset.n);render();},
+  'att-mark':function(el){var day=ui.attDay||attToday();
+    attWrite(sb.from('attendance').insert({user_id:el.dataset.u,day:day,status:el.dataset.s,marked_by:session.name||session.email}),attName(el.dataset.u)+' marked '+(el.dataset.s==='absent'?'absent':'on leave')+'.');},
+  'att-undo':function(el){attWrite(sb.from('attendance').delete().eq('id',el.dataset.id),'Mark removed.');},
+  'att-waive':function(el){var r=att.rows.find(function(x){return x.id===el.dataset.id;});if(!r)return;
+    attWrite(sb.from('attendance').update({waived:!r.waived,updated_at:new Date().toISOString()}).eq('id',r.id),r.waived?'Fine restored.':'Fine waived.');},
+  'att-person':function(el){attPersonModal(el.dataset.u);},
+  'att-copy':function(){var ym=ui.attYm||attToday().slice(0,7);
+    var tsv=['Employee\tRole\tWorks from\tPresent\tOn time\tLate\tAbsent\tLeave\tLate min\tAvg arrival\tFines (Rs)'].concat(attMonthlyData(ym).map(function(o){return [attName(o.m.user_id),attRoleLabel(o.m.user_id),o.m.loc==='wfh'?'WFH':'Office',o.on+o.late,o.on,o.late,o.abs,o.leave,o.lm,o.avg,o.fine].join('\t');})).join('\n');
+    copyQuiet(tsv,'Attendance report for '+attYmLabel(ym));},
+  'att-hol-del':function(el){var d=el.dataset.d;if(!confirmTwiceOk(el))return;attWrite(sb.from('att_holidays').delete().eq('day',d),'Holiday on '+attShort(d)+' cancelled.');}
+});
+function confirmTwiceOk(el){if(el.dataset.sure)return true;el.dataset.sure='1';el.textContent='Click again to cancel';setTimeout(function(){if(el.isConnected){delete el.dataset.sure;el.textContent='Cancel';}},3000);return false;}
+Object.assign(forms,{
+  'att-late':function(f){var n=String(formData(f).note||'').trim();if(n.length<3){toast('Please write a short reason.');return;}return attCheckIn(n);},
+  'att-holiday':function(f){var d=formData(f);if(!okDate(d.day)){toast('Enter the date as YYYY-MM-DD.');return;}
+    if(attWeekend(d.day)){toast(ATT_DN[attDow(d.day)]+' is already a weekly day off.');return;}
+    return sb.rpc('att_add_holiday',{p_day:d.day,p_name:String(d.name||'').trim(),p_notify:d.notify==='yes'}).then(async function(r){
+      if(r.error){toast(r.error.message);return;}await attLoad();render();toast('Holiday declared for '+attShort(d.day)+(d.notify==='yes'?'. Everyone was notified.':'.'));});},
+  'att-settings':function(f){var d=formData(f),wk=[0,1,2,3,4,5,6].filter(function(i){return d['wk'+i]!=null;});
+    var ips=String(d.office_ips||'').split(/[\s,]+/).map(function(x){return x.trim();}).filter(Boolean);
+    if(d.tz&&!attTzOk(d.tz)){toast('That timezone is not valid.');return;}
+    ui.attDay=null;ui.attYm=null;ui.attMyYm=null;
+    return attWrite(sb.from('att_settings').update({tz:d.tz||'',office_start:d.office_start,grace_min:Math.max(0,parseInt(d.grace_min,10)||0),fine_type:d.fine_type,fine_flat:numv(d.fine_flat),fine_per_min:numv(d.fine_per_min),slab1:numv(d.slab1),slab2:numv(d.slab2),slab3:numv(d.slab3),weekend:wk,office_ips:ips,notify_admin:d.notify_admin==='yes',notify_accountant:d.notify_accountant==='yes',updated_at:new Date().toISOString()}).eq('id',1),'Attendance settings saved.');}
+});
+document.addEventListener('change',function(e){
+  var t=e.target;if(!t||!t.classList)return;
+  if(t.id==='attDayPick'&&okDate(t.value)){ui.attDay=t.value>attToday()?attToday():t.value;render();return;}
+  if(t.classList.contains('attnote')){attWrite(sb.from('attendance').update({note:t.value,updated_at:new Date().toISOString()}).eq('id',t.dataset.id),'Note saved.');return;}
+  if(t.classList.contains('atttrack')){attWrite(sb.from('att_members').update({track:t.checked}).eq('user_id',t.dataset.u),attName(t.dataset.u)+': attendance '+(t.checked?'on':'off')+'.');return;}
+  if(t.classList.contains('attlocsel')){attWrite(sb.from('att_members').update({loc:t.value}).eq('user_id',t.dataset.u),attName(t.dataset.u)+' now works from '+(t.value==='wfh'?'home':'the office')+'.');return;}
+});
+document.addEventListener('keydown',function(e){var t=e.target;if(e.key==='Enter'&&t&&t.classList&&t.classList.contains('attnote')){e.preventDefault();t.blur();}});
+
 var lastBtnClick=0;
 document.addEventListener('submit',function(e){
   var f=e.target.closest('form[data-form]');
