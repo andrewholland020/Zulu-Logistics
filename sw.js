@@ -3,7 +3,7 @@
    - Keeps the last copy of the portal so the app still opens without signal and says it is offline.
    - Never stores database data: requests to Supabase and other sites pass straight through.
    - Opens the app when someone taps one of its notifications. */
-var CACHE = 'zulu-shell-v1';
+var CACHE = 'zulu-shell-v3';
 var SHELL = ['./', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', function (e) {
