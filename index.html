@@ -7345,7 +7345,18 @@ var ATT_DN=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturda
 var ATT_MN=['January','February','March','April','May','June','July','August','September','October','November','December'];
 function attTzOk(z){if(!z)return false;try{new Intl.DateTimeFormat('en-US',{timeZone:z});return true;}catch(e){return false;}}
 function attTz(){var z=att.set&&att.set.tz;return attTzOk(z)?z:coTz();}
-function attToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:attTz(),year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+function attCalToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:attTz(),year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+function attNowHM(){try{return new Intl.DateTimeFormat('en-GB',{timeZone:attTz(),hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date());}catch(e){return '00:00';}}
+function attHM(t){var p=String(t||'0:0').split(':');return (+p[0]||0)*60+(+p[1]||0);}
+function attMinHM(n){n=((n%1440)+1440)%1440;return pad(Math.floor(n/60))+':'+pad(n%60);}
+function attOvernight(){var s=att.set;return !!(s&&s.office_end)&&attHM(s.office_end)<=attHM(s.office_start);}
+/* the attendance day = the day the shift started (a 6 PM - 3 AM shift is still "yesterday" at 1 AM) */
+function attToday(){var d=attCalToday();if(attOvernight()&&attHM(attNowHM())<attHM(att.set.office_end))d=attAddDays(d,-1);return d;}
+function attOpensMin(){var s=att.set;return attHM(s.office_start)-Math.max(0,+s.open_before_min||0);}
+function attWindow(){var s=att.set;if(!s)return 'open';var n=attHM(attNowHM()),op=attOpensMin(),en=s.office_end?attHM(s.office_end):null;
+  if(attOvernight())return n<en?'open':(n<op?'early':'open');
+  if(n<op)return 'early';if(en!=null&&n>en)return 'closed';return 'open';}
+function attHoursLabel(){var s=att.set;return att12(String(s.office_start).slice(0,5))+(s.office_end?' – '+att12(String(s.office_end).slice(0,5)):'');}
 function attTzName(){var z=attTz();return ({'Asia/Karachi':'Pakistan time','America/New_York':'New York time','America/Chicago':'Chicago time','America/Denver':'Denver time','America/Los_Angeles':'Los Angeles time','Asia/Dubai':'Dubai time','Europe/London':'London time'})[z]||z;}
 var ATT_TZS=[['Asia/Karachi','Pakistan (Asia/Karachi)'],['America/New_York','US Eastern (America/New_York)'],['America/Chicago','US Central (America/Chicago)'],['America/Denver','US Mountain (America/Denver)'],['America/Los_Angeles','US Pacific (America/Los_Angeles)'],['Asia/Dubai','UAE (Asia/Dubai)'],['Europe/London','UK (Europe/London)']];
 function attYmShift(ym,n){var y=+ym.slice(0,4),m=+ym.slice(5,7)-1+n;y+=Math.floor(m/12);m=((m%12)+12)%12;return y+'-'+pad(m+1);}
@@ -7404,14 +7415,17 @@ function attStrip(){
   if(r&&r.check_time){cls=r.status==='late'?'islate':'done';right=r.status==='late'?'<span class="attstat late">Late · '+r.late_min+' min · '+rs(r.fine)+'</span>':'<span class="attstat ok">✓ On time</span>';}
   else if(r){cls='isoff';right='<span class="attstat off">'+(r.status==='leave'?'Leave':'Absent')+(r.marked_by?' · by '+esc(r.marked_by):'')+'</span>';}
   else if(attOff(today)){cls='isoff';var hh=attHol(today);right='<span class="attstat off">'+(hh?esc(hh.name):'Weekend')+' — day off</span>';}
+  else if(attWindow()==='early')right='<button class="btn sm attbtn" type="button" id="attWait" disabled>'+ic(ICONS.attendance)+'Opens at '+att12(attMinHM(attOpensMin()))+'</button>';
+  else if(attWindow()==='closed')right='<span class="attstat off">Office hours are over</span>';
   else right='<button class="btn primary sm attbtn" type="button" data-action="att-checkin"'+(att.busy?' disabled':'')+'>'+ic(ICONS.attendance)+'Check in</button>';
-  var line=r&&r.check_time?'Checked in at <b>'+att12(r.check_time)+'</b>'+(r.status==='late'&&r.note?' · '+esc(r.note):''):'<b id="attClock">'+attNowClock()+'</b> '+esc(attTzName())+' · Office time '+att12(s.office_start)+' · late after '+s.grace_min+' min';
+  var line=r&&r.check_time?'Checked in at <b>'+att12(r.check_time)+'</b>'+(r.status==='late'&&r.note?' · '+esc(r.note):''):'<b id="attClock">'+attNowClock()+'</b> '+esc(attTzName())+' · Office '+attHoursLabel()+' · late after '+s.grace_min+' min';
   return '<div class="attbar '+cls+'"><span class="attico">'+ic(ICONS.attendance)+'</span>'+
     '<div class="atttxt"><b>Attendance</b> <span class="muted">· '+attShort(today)+'</span><span class="small muted">'+line+'</span></div>'+
     attLoc(m.loc)+right+'</div>'+
     (up?'<div class="attholnote">Upcoming holiday: <b>'+esc(up.name)+'</b> — '+attShort(up.day)+(up.declared_by?' (declared by '+esc(up.declared_by)+')':'')+'</div>':'');
 }
-setInterval(function(){var c=document.getElementById('attClock');if(c)c.textContent=attNowClock();},15000);
+var attLastWin='';
+setInterval(function(){var c=document.getElementById('attClock');if(c)c.textContent=attNowClock();if(att.ok&&document.querySelector('.attbar')){var w=attWindow()+attToday();if(attLastWin&&w!==attLastWin)render();attLastWin=w;}},15000);
 function attCheckIn(note){
   if(att.busy)return;att.busy=true;
   return sb.rpc('att_check_in',{p_note:note||''}).then(async function(r){
@@ -7536,6 +7550,8 @@ function attSettingsHtml(){
   return '<section class="panel"><div class="pad"><form class="form" data-form="att-settings">'+
     field('Attendance timezone','tz',attTzOk(s.tz)?s.tz:'',{type:'select',options:[['','Same as company timezone ('+coTz()+')']].concat(ATT_TZS,attTzOk(s.tz)&&!ATT_TZS.some(function(x){return x[0]===s.tz;})?[[s.tz,s.tz]]:[]),hint:'Office time, late, and what counts as today use this timezone. Loads and invoices keep the company timezone.'})+
     field('Office start time','office_start',String(s.office_start||'09:00').slice(0,5),{type:'time',required:true,hint:'In the attendance timezone above.'})+
+    field('Office end time','office_end',s.office_end?String(s.office_end).slice(0,5):'',{type:'time',hint:'e.g. 3:00 AM for a 6 PM – 3 AM shift. After midnight, check-ins still count for the day the shift started. Leave empty for no end.'})+
+    field('Check-in opens (minutes before start)','open_before_min',s.open_before_min==null?30:s.open_before_min,{type:'number',min:0,hint:'Nobody can check in earlier than this. After office end time, check-in is closed.'})+
     field('Grace period (minutes)','grace_min',s.grace_min,{type:'number',min:0,required:true,hint:'Check-ins up to start time + grace are on time.'})+
     field('Late fine type','fine_type',s.fine_type,{type:'select',options:[['flat','Flat amount per late day'],['per_min','Amount per minute late'],['slab','Slabs by minutes late']]})+
     field('Flat fine (Rs)','fine_flat',s.fine_flat,{type:'number',min:0})+
@@ -7593,7 +7609,7 @@ Object.assign(forms,{
     var ips=String(d.office_ips||'').split(/[\s,]+/).map(function(x){return x.trim();}).filter(Boolean);
     if(d.tz&&!attTzOk(d.tz)){toast('That timezone is not valid.');return;}
     ui.attDay=null;ui.attYm=null;ui.attMyYm=null;
-    return attWrite(sb.from('att_settings').update({tz:d.tz||'',office_start:d.office_start,grace_min:Math.max(0,parseInt(d.grace_min,10)||0),fine_type:d.fine_type,fine_flat:numv(d.fine_flat),fine_per_min:numv(d.fine_per_min),slab1:numv(d.slab1),slab2:numv(d.slab2),slab3:numv(d.slab3),weekend:wk,office_ips:ips,notify_admin:d.notify_admin==='yes',notify_accountant:d.notify_accountant==='yes',updated_at:new Date().toISOString()}).eq('id',1),'Attendance settings saved.');}
+    return attWrite(sb.from('att_settings').update({tz:d.tz||'',office_end:d.office_end||null,open_before_min:Math.max(0,parseInt(d.open_before_min,10)||0),office_start:d.office_start,grace_min:Math.max(0,parseInt(d.grace_min,10)||0),fine_type:d.fine_type,fine_flat:numv(d.fine_flat),fine_per_min:numv(d.fine_per_min),slab1:numv(d.slab1),slab2:numv(d.slab2),slab3:numv(d.slab3),weekend:wk,office_ips:ips,notify_admin:d.notify_admin==='yes',notify_accountant:d.notify_accountant==='yes',updated_at:new Date().toISOString()}).eq('id',1),'Attendance settings saved.');}
 });
 document.addEventListener('change',function(e){
   var t=e.target;if(!t||!t.classList)return;
