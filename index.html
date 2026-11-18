@@ -1168,7 +1168,10 @@ function keepRestore(have){
      from an action that deletes many on purpose (deleting a driver with their loads). */
 var editGen=0,failedKeys={},saveFails=0,retryT=null,bulkDelOk=false,deniedShown=0;
 function hasUnsaved(){return pending>0||Object.keys(failedKeys).length>0;}
-function isPermErr(e){var m=String((e&&e.message)||e||'');return (e&&e.code==='42501')||/row-level security|permission denied|not allowed|violates/i.test(m);}
+function isPermErr(e){var m=String((e&&e.message)||e||'');return (e&&e.code==='42501')||/row-level security|permission denied|not allowed|violates/i.test(m)||isRuleErr(e);}
+/* the database refused the record because of a rule (e.g. 'A driver with MC number … is already in the portal'). Retrying cannot help. */
+function isRuleErr(e){var c=String((e&&e.code)||'');return /^(23|22)\d{3}$/.test(c)||c==='P0001'||/already in the portal|can only|only the admin/i.test(String((e&&e.message)||''));}
+var deniedWhy={};
 function isAuthErr(e){var m=String((e&&e.message)||e||'');return /JWT|expired|invalid token|401|not authenticated/i.test(m);}
 async function sendRows(rows){
   for(var a=0;a<3;a++){
@@ -1187,7 +1190,7 @@ async function saveBatch(up,del){
     var perm=await sendRows(rows);
     if(perm){
       /* one refused record must not block the rest: send them one by one */
-      for(var k=0;k<rows.length;k++){var e1=await sendRows([rows[k]]);if(e1)denied.push(part[k].coll+'|'+part[k].id);}
+      for(var k=0;k<rows.length;k++){var e1=await sendRows([rows[k]]);if(e1){var dk=part[k].coll+'|'+part[k].id;denied.push(dk);deniedWhy[dk]={msg:isRuleErr(e1)?String(e1.message||''):'',at:Date.now()};}}
     }
   }
   var cs=Object.keys(del);
@@ -1230,10 +1233,12 @@ function persist(){
     keepDrop(Object.keys(mine));
     if(res&&res.denied.length){
       console.warn('Not allowed to save',res.denied);keepDrop(res.denied);
-      var dl=res.denied.map(function(k){var c=k.split('|')[0],id=k.slice(c.length+1);var x=c==='loads'?getLoad(id):null;return x?'load '+(x.ref||id):c;});
+      var dl=res.denied.map(function(k){var c=k.split('|')[0],id=k.slice(c.length+1);var x=c==='loads'?getLoad(id):c==='drivers'?getDrv(id):null;return x?(c==='loads'?'load '+(x.ref||id):'driver '+(x.name||id)):c;});
+      var why=res.denied.map(function(k){return deniedWhy[k]&&deniedWhy[k].msg;}).filter(Boolean)[0]||'';
+      var tail=why?' '+why.replace(/\.?$/,'.'):' This login is not allowed to save it. Note it down and ask the admin.';
       deniedShown=Date.now();
-      var bar=document.getElementById('unsavedBar');if(bar){bar.style.background='#c0392b';bar.style.color='#fff';bar.textContent='NOT SAVED: '+dl.slice(0,3).join(', ')+(dl.length>3?' and '+(dl.length-3)+' more':'')+'. This login is not allowed to save it. Note it down and ask the admin.';bar.style.display='block';setTimeout(function(){if(!Object.keys(failedKeys).length&&!pending)bar.style.display='none';},15000);}
-      toast('Not saved: '+dl.slice(0,3).join(', ')+'. This login is not allowed to save it. Ask the admin.');
+      var bar=document.getElementById('unsavedBar');if(bar){bar.style.background='#c0392b';bar.style.color='#fff';bar.textContent='NOT SAVED: '+dl.slice(0,3).join(', ')+(dl.length>3?' and '+(dl.length-3)+' more':'')+'.'+tail;bar.style.display='block';setTimeout(function(){if(!Object.keys(failedKeys).length&&!pending)bar.style.display='none';},15000);}
+      toast('Not saved: '+dl.slice(0,3).join(', ')+'.'+(why?tail:' This login is not allowed to save it. Ask the admin.'));
       setTimeout(function(){if(!hasUnsaved())refreshData(true);},1200);
     }
     setSave();notesSoon();
@@ -1580,6 +1585,12 @@ async function saveSalesDriver(f){
   else{drv=Object.assign({id:uid('d'),feePct:7,salesAgentId:session.empId,dispatcherId:'',driverStatus:'In Loop',addedAt:new Date().toISOString(),addedBy:session.name||session.email,addedByRole:'sales'},rec);db.drivers.push(drv);}
   persist();
   if(!(await waitSaved())){toast('Not saved yet because of a connection problem. The portal keeps trying in the background, so do not add this driver again.');if(btn){btn.disabled=false;btn.textContent=old?'Save changes':'Add driver';}closeModal();render();return;}
+  var refused=deniedWhy['drivers|'+drv.id];
+  if(refused&&Date.now()-refused.at<60000){
+    if(!old)db.drivers=db.drivers.filter(function(x){return x.id!==drv.id;});
+    if(btn){btn.disabled=false;btn.textContent=old?'Save changes':'Add driver';}
+    toast('Not saved. '+(refused.msg||'This login is not allowed to save this driver.')+' Ask the admin.');render();return;
+  }
   if(!old&&d.fromFu&&getFu(d.fromFu)){db.followups=db.followups.filter(function(x){return x.id!==d.fromFu;});persist();}
   closeModal();render();
   if(!files.length){toast(old?'Driver updated':'Driver added. The admin and accountant have been notified.');return;}
