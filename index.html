@@ -1006,6 +1006,22 @@ html[data-mode="dark"] .modeseg button[aria-checked="true"],html[data-skin="dark
 .attnav input[type=date]{width:auto;max-width:170px}
 .attnav .datewrap,.attnav .dateinput{width:auto;display:inline-flex}
 
+/* sidebar on computers: the menu scrolls inside the sidebar, so Settings, My account and Sign out can always be reached without zooming out */
+@media screen and (min-width:761px){
+  .rail{overflow:hidden}
+  .rail nav{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.28) transparent;margin-right:-8px;padding-right:8px}
+  .rail nav::-webkit-scrollbar{width:6px}
+  .rail nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.28);border-radius:6px}
+  .rail .plate,.rail .who{flex:none}
+}
+@media screen and (min-width:761px) and (max-height:860px){
+  .rail{gap:12px;padding-top:14px;padding-bottom:12px}
+  .rail nav button{padding:.36rem .7rem}
+}
+@media screen and (min-width:761px) and (max-height:560px){
+  .rail{overflow-y:auto}
+  .rail nav{overflow:visible;flex:none}
+}
 /* "Powered by Prohauls Services" under the company name and on every document */
 .plate::after{content:"Powered by Prohauls Services";font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;opacity:.72;white-space:nowrap}
 html[data-skin]:not([data-skin="light"]):not([data-skin="dark"]) .plate::before{grid-row:1/4}
