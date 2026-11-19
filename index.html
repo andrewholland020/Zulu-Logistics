@@ -2391,6 +2391,7 @@ var MTABS={admin:['overview','inbox','loads'],accountant:['overview','inbox','lo
 var MSHORT={overview:'Home',salesdash:'My drivers',inbox:'Inbox',loads:'Loads',dailyreport:'Report'};
 function ic(d){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+d+'</svg>';}
 var ICONS={
+  theme:'<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.4-.9.2-2.2 1.4-2.2H17a4 4 0 0 0 4-4c0-5-4-10-9-10z"/><circle cx="7.5" cy="11.5" r="1.2"/><circle cx="10.5" cy="7.5" r="1.2"/><circle cx="15.5" cy="7.5" r="1.2"/>',
   attendance:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
   myattendance:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
   overview:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
@@ -3354,12 +3355,12 @@ function invStatus(inv){if(inv.status==='Sent'&&inv.due<TODAY)return 'Overdue';r
 
 /* ---------- permissions ---------- */
 var ROLES={
-  admin:{label:'Admin',pages:['overview','attendance','mreport','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','account']},
-  accountant:{label:'Accountant',pages:['overview','attendance','myattendance','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','account']},
-  dispatcher:{label:'Dispatcher',pages:['overview','myattendance','myteam','inbox','myreport','loads','invoices','driverov','customers','mypay','account']},
-  sales:{label:'Sales agent',pages:['salesdash','myattendance','inbox','followups','dailyreport','myreport','mypay','account']}
+  admin:{label:'Admin',pages:['overview','attendance','mreport','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','theme','account']},
+  accountant:{label:'Accountant',pages:['overview','attendance','myattendance','inbox','loads','teams','dispreports','salesreports','salesdaily','drivers','driverov','customers','invoices','payments','payroll','team','settings','theme','account']},
+  dispatcher:{label:'Dispatcher',pages:['overview','myattendance','myteam','inbox','myreport','loads','invoices','driverov','customers','mypay','theme','account']},
+  sales:{label:'Sales agent',pages:['salesdash','myattendance','inbox','followups','dailyreport','myreport','mypay','theme','account']}
 };
-var LABELS={attendance:'Attendance',myattendance:'My attendance',payments:'Driver payments',teams:'Dispatch teams',myteam:'My team',mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',account:'My account'};
+var LABELS={attendance:'Attendance',myattendance:'My attendance',payments:'Driver payments',teams:'Dispatch teams',myteam:'My team',mreport:'Monthly Report',salesdash:'My drivers',inbox:'Inbox',followups:'Follow-ups',dailyreport:'Daily report',salesreports:'Sales reports',salesdaily:'Daily reports',overview:'Overview',myreport:'My report',loads:'Loads',dispreports:'Dispatcher reports',drivers:'Drivers',driverov:'Driver overview',customers:'Brokers',invoices:'Invoices',payroll:'Payroll',mypay:'My payslips',team:'Team',settings:'Settings',theme:'Theme',account:'My account'};
 function canSetPw(kind){
   var r=session&&session.role;
   if(r==='admin')return true;
@@ -3629,6 +3630,7 @@ function pageHtml(){
     case 'myteam':return pMyTeam();
     case 'teams':return pTeams();
     case 'myreport':return session.role==='dispatcher'||session.role==='sales'?pMyReport():'';
+    case 'theme':return pTheme();
     case 'account':return pAccount();
     case 'mypay':return pMyPay();
     case 'loads':return pLoads();
@@ -6287,7 +6289,7 @@ function pDispReports(){
 
 /* ---------- my account ---------- */
 function pAccount(){
-  return head('My account','Signed in as '+esc(session.email)+' · '+esc(ROLES[session.role].label),'')+(session.role==='admin'?'':appearancePanel())+
+  return head('My account','Signed in as '+esc(session.email)+' · '+esc(ROLES[session.role].label),'')+
   '<section class="panel"><header><div><h2>Change password</h2><div class="muted small">Enter your current password, then choose a new one.</div></div></header>'+
   '<div class="pad"><form class="form" data-form="mypw" autocomplete="off">'+
     field('Current password','cur','',{type:'password',required:true,full:true})+
@@ -6479,9 +6481,9 @@ function loginsPanel(){
 function pSettings(){
   var s=db.settings;
   if(session.role!=='admin'){
-    return head('Settings','Appearance, logins and passwords')+appearancePanel()+invoiceEmailPanel()+driverPaymentsPanel()+loginsPanel();
+    return head('Settings','Logins and passwords')+invoiceEmailPanel()+driverPaymentsPanel()+loginsPanel();
   }
-  return head('Settings','Company details, appearance and logins')+appearancePanel()+invoiceEmailPanel()+driverPaymentsPanel()+
+  return head('Settings','Company details and logins')+invoiceEmailPanel()+driverPaymentsPanel()+
   '<section class="panel"><div class="pad"><form class="form" data-form="settings">'+
     field('Company name','company',s.company,{required:true})+
     field('Phone','phone',s.phone,{type:'tel'})+
@@ -6768,7 +6770,7 @@ var actions={
   'mode-set':function(el){var m=el.dataset.m==='dark'?'dark':'light';if((isDarkNow()?'dark':'light')===m)return;try{localStorage.setItem('zuluMode',m);}catch(e){}applyLook();render();},
   'mode-toggle':function(){try{localStorage.setItem('zuluMode',isDarkNow()?'light':'dark');}catch(e){}applyLook();render();},
   'look-mode':function(el){try{localStorage.setItem('zuluMode',el.dataset.m);}catch(e){}applyLook();render();},
-  'look-theme':function(el){if(session.role!=='admin'&&session.role!=='accountant')return;db.settings.theme=el.dataset.t;applyLook();persist();render();toast('Theme saved for everyone: '+(THEMES.filter(function(x){return x[0]===el.dataset.t;})[0]||['',''])[1]);},
+  'look-theme':function(el){myLookSet('theme',el.dataset.t);applyLook();render();toast('Theme changed for you only: '+(THEMES.filter(function(x){return x[0]===el.dataset.t;})[0]||['',''])[1]);},
   'deliver-load':function(el){var l=getLoad(el.dataset.id);if(!l||!myLoadRow(l))return;l.status='Delivered';l.deliveredOn=coToday();l.deliveredBy=session.name||session.email;persist();render();ldRefresh(l.id);toast(l.ref+' delivered. It is ready to invoice.');},
   'disp-row':function(el){if(Date.now()-lastBtnClick<800)return;dispDetail(el.dataset.id);},
   'sales-row':function(el){if(Date.now()-lastBtnClick<800)return;salesDetail(el.dataset.id);},
@@ -7678,7 +7680,7 @@ document.addEventListener('change',function(e){
   if(t.id==='moYm'&&t.value){ui.moYm=t.value;if(okMonth(t.value))monthEverywhere(t.value);render();}
   if(t.id==='ovMonth'&&t.value){ui.ovChip='Month';ui.ovYm=t.value;ui.ov={from:mFrom(t.value),to:mTo(t.value)};render();}
   if(t.dataset&&t.dataset.ymk&&MSET[t.dataset.ymk]&&okMonth(t.value)){MSET[t.dataset.ymk](t.value);render();return;}
-  if(t.id==='lookFontSel'){if(session.role!=='admin'&&session.role!=='accountant')return;db.settings.font=t.value;applyLook();persist();toast('Font saved for everyone');return;}
+  if(t.id==='lookFontSel'){myLookSet('font',t.value);applyLook();toast('Font changed for you only');return;}
   if(t.id==='tmP'){ui.tmP=t.value;render();return;}
   if(t.id==='tmYm'){if(okMonth(t.value)){ui.tmP='Month';ui.tmYm=t.value;render();}return;}
   if(t.id==='tmAdd'){if(t.value){var h=$('tmMembers');h.value=String(h.value||'').split(',').filter(Boolean).concat([t.value]).join(',');teamFormDraw();}return;}
@@ -7789,9 +7791,15 @@ var THEMES=[
 ];
 var FONTS=[['inter','Inter'],['jakarta','Plus Jakarta Sans'],['plex','IBM Plex Sans'],['cabin','Cabin (original)']];
 function myMode(){try{return localStorage.getItem('zuluMode')||'light';}catch(e){return 'light';}}
+/* each person's own theme and font: kept in this browser for the signed-in person only.
+   If they have not picked one, the company's theme and font are used. */
+function myLookKey(k){return session&&session.uid?'zuluMy'+k+':'+session.uid:'';}
+function myLookGet(k){try{var key=myLookKey(k);return key?localStorage.getItem(key)||'':'';}catch(e){return '';}}
+function myLookSet(k,v){try{var key=myLookKey(k);if(key){if(v)localStorage.setItem(key,v);else localStorage.removeItem(key);}}catch(e){}}
 function applyLook(){
   var d=document.documentElement,st=(typeof db!=='undefined'&&db&&db.settings)||{};
-  var t=st.theme||'brand',f=st.font||'inter',m=myMode();
+  var t=myLookGet('theme')||st.theme||'brand',f=myLookGet('font')||st.font||'inter',m=myMode();
+  if(!THEMES.some(function(x){return x[0]===t;}))t=st.theme||'brand';
   var dark=m==='dark'||(m==='system'&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);
   var skin=t,mode=dark?'dark':'';
   if(t==='classic')skin='';
@@ -7804,10 +7812,11 @@ function applyLook(){
   var mc=document.querySelector('meta[name="theme-color"]');if(mc){var row=THEMES.filter(function(x){return x[0]===t;})[0];mc.setAttribute('content',dark&&t!=='arctic'?'#0b1422':(row?row[3]:'#14305a'));}
 }
 if(window.matchMedia){try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){if(myMode()==='system')applyLook();});}catch(e){}}
+/* Theme page: every employee picks their own theme and font */
+function pTheme(){return head('Theme','Your own colours and font · only your portal changes')+appearancePanel();}
 function appearancePanel(){
-  if(session.role!=='admin'&&session.role!=='accountant')return '';
-  var st=db.settings,t=st.theme||'brand',f=st.font||'inter',m=myMode(),admin=true;
-  return '<section class="panel" id="lookPanel"><header><div><h2>Appearance</h2><div class="muted small">'+'The theme and font you pick here are used by everyone in the portal. Each person switches Light or Dark with the button in the menu.'+'</div></div></header>'+
+  var st=db.settings,t=myLookGet('theme')||st.theme||'brand',f=myLookGet('font')||st.font||'inter',m=myMode(),admin=true;
+  return '<section class="panel" id="lookPanel"><header><div><h2>Choose your theme</h2><div class="muted small">'+'Pick a theme and a font. They change only your portal, not anyone else\'s. Light or Dark is the button in the menu.'+'</div></div></header>'+
     '<div class="pad" style="display:grid;gap:18px">'+
     (admin?'<div><div class="small" style="font-weight:700;margin-bottom:8px">Portal theme · '+THEMES.length+' themes</div><div class="lookgrid">'+THEMES.map(function(x){
       return '<button type="button" class="looktheme" data-action="look-theme" data-t="'+x[0]+'" aria-pressed="'+(t===x[0])+'">'+
