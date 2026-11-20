@@ -4640,7 +4640,13 @@ function findBroker(name,mc){
   var m=normMc(mc),n=lc(name);
   return (m&&db.customers.find(function(c){return normMc(c.mc)===m;}))||(n&&db.customers.find(function(c){return lc(c.name)===n;}))||null;
 }
-function findAgent(c,email){var e=lc(email);return e?agentsOf(c).find(function(a){return lc(a.email)===e;})||null:null;}
+function findAgent(c,email,phone){
+  var e=lc(email),p=digitsOnly(phone),all=agentsOf(c);
+  if(e){var byMail=all.find(function(a){return lc(a.email)===e;});if(byMail)return byMail;}
+  /* the same phone number is the same agent (when that agent has no other email saved) */
+  return p.length>=7?all.find(function(a){return digitsOnly(a.phone)===p&&(!e||!lc(a.email));})||null:null;
+}
+function agentKeyOk(email,phone){return !!lc(email)||digitsOnly(phone).length>=7;}
 function agentChanges(a,phone,ext){
   var out=[];
   if(a&&phone&&a.phone&&digitsOnly(a.phone)!==digitsOnly(phone))out.push('phone '+a.phone+' → '+phone);
@@ -4668,9 +4674,9 @@ function rcNote(){
   var el=$('rcNote'),f=loadFormEl();if(!el||!f||!rcState)return;
   var v=function(n){var x=f.querySelector('[name='+n+']');return x?String(x.value||'').trim():'';};
   var name=v('brokerName'),bro=name?findBroker(name,v('brokerMc')):null,parts=[];
-  var email=v('agentEmail'),ag=bro&&email?findAgent(bro,email):null,chg=ag?agentChanges(ag,v('agentPhone'),v('agentExt')):[];
-  if(email)parts.push(ag?'This agent is already saved under '+esc(bro.name)+'.':'This agent will be added'+(bro?' under '+esc(bro.name):'')+'.');
-  else if(name&&(v('agentName')||v('agentPhone')))parts.push('No agent email, so the load is linked to the broker only.');
+  var email=v('agentEmail'),phone=v('agentPhone'),keyOk=agentKeyOk(email,phone),ag=bro&&keyOk?findAgent(bro,email,phone):null,chg=ag&&email?agentChanges(ag,phone,v('agentExt')):[];
+  if(keyOk)parts.push(ag?'This agent is already saved under '+esc(bro.name)+'.':'This agent will be added'+(bro?' under '+esc(bro.name):'')+'.');
+  else if(name&&(v('agentName')||phone))parts.push('Add the agent\'s email or a full phone number to save the agent.');
   var html=parts.join(' ');
   if(chg.length)html+='<label><input type="checkbox" id="rcUpd"'+(rcState.upd?' checked':'')+'> Update the saved agent: '+esc(chg.join(', '))+'. Leave unticked to keep the saved details.</label>';
   el.innerHTML=html;el.hidden=!html;
@@ -7383,18 +7389,20 @@ var forms={
     /* the broker: by MC number if we have it, otherwise by company name (any upper/lower case) */
     var bro=findBroker(bname,bmc);
     if(!bro){
-      bro={id:uid('c'),contact:agIn.email?agIn.name:'',name:bname,phone:agIn.email?agIn.phone:'',ext:agIn.email?agIn.ext:'',email:agIn.email,mc:bmc,agents:[]};
+      var hasAg=agentKeyOk(agIn.email,agIn.phone);
+      bro={id:uid('c'),contact:hasAg?agIn.name:'',name:bname,phone:hasAg?agIn.phone:'',ext:hasAg?agIn.ext:'',email:agIn.email,mc:bmc,agents:[]};
       db.customers.push(bro);said.push('New broker '+bname+' added to Brokers');
     }else if(bmc&&!normMc(bro.mc))bro.mc=bmc;
-    /* the agent: by email under that broker; no email means the load is linked to the broker only */
+    /* the agent: by email under that broker, or by phone number when there is no email */
     rec.agentId='';
-    if(agIn.email){
-      var list=ensureAgents(bro),ag=list.find(function(a){return lc(a.email)===lc(agIn.email);});
+    if(agentKeyOk(agIn.email,agIn.phone)){
+      var list=ensureAgents(bro),ag=findAgent(bro,agIn.email,agIn.phone);
       if(!ag){
         ag={id:uid('ag'),name:agIn.name,email:agIn.email,phone:agIn.phone,ext:agIn.ext,addedAt:new Date().toISOString(),addedBy:session.name||session.email};
-        list.push(ag);if(said.length)said[0]+=' with agent '+(agIn.name||agIn.email);else said.push('Agent '+(agIn.name||agIn.email)+' added under '+bro.name);
+        list.push(ag);if(said.length)said[0]+=' with agent '+(agIn.name||agIn.email||agIn.phone);else said.push('Agent '+(agIn.name||agIn.email||agIn.phone)+' added under '+bro.name);
       }else{
         if(!ag.name&&agIn.name)ag.name=agIn.name;
+        if(!ag.email&&agIn.email)ag.email=agIn.email;
         if(!ag.phone&&agIn.phone)ag.phone=agIn.phone;
         if(!ag.ext&&agIn.ext)ag.ext=agIn.ext;
         var chg=agentChanges(ag,agIn.phone,agIn.ext),upd=f.querySelector('#rcUpd');
