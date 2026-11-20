@@ -1022,6 +1022,16 @@ html[data-mode="dark"] .modeseg button[aria-checked="true"],html[data-skin="dark
   .rail{overflow-y:auto}
   .rail nav{overflow:visible;flex:none}
 }
+/* trucks and dispatch fee */
+.trkset small{display:block;margin-bottom:6px}
+#trkRows{display:grid;gap:8px;margin-bottom:6px}
+.trkrow{display:grid;grid-template-columns:minmax(120px,1.4fr) minmax(80px,.8fr) minmax(110px,1fr) minmax(80px,.7fr) auto;gap:8px;align-items:center}
+@media (max-width:760px){.trkrow{grid-template-columns:1fr 1fr}.trkrow select{grid-column:1/-1}}
+.trklist{display:grid;gap:6px}
+.trkline{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px}
+.trkno{width:22px;height:22px;border-radius:50%;background:var(--surface2);display:inline-flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;flex:none}
+.trkname{flex:1;min-width:0}
+.trkpct{white-space:nowrap}
 /* "Powered by Prohauls Services" under the company name and on every document */
 .plate::after{content:"Powered by Prohauls Services";font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;opacity:.72;white-space:nowrap}
 html[data-skin]:not([data-skin="light"]):not([data-skin="dark"]) .plate::before{grid-row:1/4}
@@ -1520,12 +1530,13 @@ function driverInfo(id){
       '<div class="ld-card"><h3>Team and terms</h3>'+
         row('Dispatcher',d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):'<span class="pill p-delivered">Not assigned yet</span>')+
         row('Sales agent',d.salesAgentId?esc(nm(getEmp(d.salesAgentId))):'')+
-        row('Dispatch fee',d.feePct!=null&&d.feePct!==''?esc(String(d.feePct))+'% of each load rate':'')+
+        row('Dispatch fee',isFlat(d)?'Flat rate '+money(d.flatRate)+' a week':d.feePct!=null&&d.feePct!==''?esc(feeSummary(d))+' of each load rate'+(drvTrucks(d).length>1?', by truck':''):'')+
         row('Added',d.addedAt?fmtD(dayOf(d.addedAt))+(d.addedBy?' · '+esc(d.addedBy):''):'')+
         row('Active date',act?fmtD(act):(st==='Active'?'<span class="muted" style="font-weight:400">not recorded'+(isOffice()?' · add with Edit':'')+'</span>':'<span class="muted" style="font-weight:400">not active yet</span>'))+
         row('Status since',d.statusAt?fmtD(dayOf(d.statusAt))+(d.statusBy?' · '+esc(d.statusBy):''):'')+
       '</div>'+
     '</div>'+
+    trucksCardHtml(d)+
     (canStatus?'<div class="ld-card"><h3>Set status</h3><div class="ld-foot" style="justify-content:flex-start;padding:0">'+
       '<button class="btn sm'+(st==='Active'?' primary':'')+'" type="button" data-action="drv-status" data-id="'+d.id+'" data-st="Active"'+(done.length?'':' disabled title="Available after the first completed load"')+'>Mark Active</button>'+
       '<button class="btn sm'+(st==='In Loop'?' primary':'')+'" type="button" data-action="drv-status" data-id="'+d.id+'" data-st="In Loop">Mark In Loop</button>'+
@@ -1566,6 +1577,7 @@ function salesDriverForm(d,pre){
     field('Email address','email',d.email||'',{type:'email'})+
     field('Truck type','truckType',d.truckType||'',{type:'select',options:[['','Choose…']].concat(TRUCK_TYPES)})+
     field('Truck length (ft)','truckLen',d.truckLen||'',{type:'number',min:1,max:100,step:'1',inputmode:'numeric',required:isNew})+
+    (isNew?feeFields(d):(drvTrucks(d).length>1||isFlat(d)?'<p class="small muted full" style="margin:0">Trucks and fee: <b>'+esc(feeSummary(d))+'</b> ('+plural(drvTrucks(d).length,'truck')+'). Ask the admin or the dispatcher to change them.</p>':''))+
     field('Weight capacity (lbs)','weightCap',d.weightCap||'',{type:'number',min:0,step:'1',inputmode:'numeric'})+
     field('ZIP code','zip',d.zip||'',{inputmode:'numeric',hint:'Where the driver is based.'})+
     accChecks(d)+
@@ -1573,6 +1585,7 @@ function salesDriverForm(d,pre){
     (isNew?(docsOk?'<fieldset class="field full"><span>Documents</span><div id="docRows">'+docRowsHtml(3)+'</div><button class="linkbtn" type="button" data-action="sales-more-docs">+ Add another document</button><small>PDF or photo, up to 25 MB each. You can add more later from Documents.</small></fieldset>':'')
       :'<p class="small muted full" style="margin:0">To add or replace documents, use the Documents button.</p>')+
     '<div class="formfoot"><button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit" id="salesSave">'+(isNew?'Add driver':'Save changes')+'</button></div></form>',true);
+  initFeeFields();
 }
 function truckLenOf(v){var n=Math.round(Number(String(v==null?'':v).trim()));return n>0&&n<=100?n:'';}
 function readAcc(f,dd){var a=[];ACCESSORIES.forEach(function(x,i){if(dd['acc_'+i])a.push(x);});return a;}
@@ -1587,6 +1600,7 @@ async function saveSalesDriver(f){
   var pct=Number(String(d.feePct==null?'':d.feePct).replace('%','').trim());
   if(String(d.feePct==null?'':d.feePct).trim()===''||!isFinite(pct)||pct<=0||pct>100){toast('Enter the dispatch fee as a percentage between 0.1 and 100.');return;}
   rec.feePct=Math.round(pct*100)/100;
+  if(!old){var feeErr=readFeeFields(d,rec,null);if(feeErr){toast(feeErr);return;}}
   if(rec.zip&&!/^\d{5}(-\d{4})?$/.test(rec.zip)){toast('Enter a 5-digit ZIP code.');return;}
   if(rec.email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rec.email)){toast('That email address does not look right.');return;}
   var files=[];
@@ -1935,7 +1949,7 @@ function loadDetail(id){
       kpi('Load rate',money(rate),'')+
       kpi('Rate per mile',miles?money(r2(rate/miles)):'—',tot&&dead?money(r2(rate/tot))+' with deadhead':'')+
       kpi('Total miles',NUM.format(tot),dead?NUM.format(miles)+' loaded · '+NUM.format(dead)+' deadhead':'loaded miles')+
-      kpi('Dispatch fee',money(loadFee(l)),esc(String(d.feePct||0))+'% of the load rate')+
+      kpi('Dispatch fee',money(loadFee(l)),feeNote(l))+
     '</div>'+
     '<div class="ld-card"><h3>Progress</h3><ol class="ld-steps">'+steps.map(function(st,i){return '<li class="'+(i<=stIdx?'done':'')+(i>0&&i<=stIdx?' linked':'')+(i===stIdx?' now':'')+'"><span class="ld-ck">'+(i<=stIdx?'&#10003;':'')+'</span><b>'+st[0]+'</b><small>'+(st[1]||'&nbsp;')+'</small></li>';}).join('')+'</ol></div>'+
     '<div class="ld-cols">'+
@@ -3129,8 +3143,8 @@ function createInvoice(driverId,customerId,loadIds,issued){
   var terms=db.settings.invTerms!=null?Number(db.settings.invTerms):7;
   db.seq.invoice+=1;
   var no='INV-'+issued.slice(0,4)+'-'+String(db.seq.invoice).padStart(4,'0');
-  var total=0,fees={};
-  loadIds.forEach(function(id){var l=getLoad(id);if(l){fees[id]=loadFee(l);total+=fees[id];}});
+  var total=0,fees=invFees(getDrv(driverId),loadIds);
+  Object.keys(fees).forEach(function(id){total+=fees[id];});
   var inv={id:uid('inv'),no:no,driverId:driverId,customerId:customerId,loadIds:loadIds.slice(),fees:fees,issued:issued,terms:terms,due:addDays(issued,terms),status:'Sent',paidOn:'',total:r2(total)};
   db.invoices.push(inv);
   loadIds.forEach(function(id){var l=getLoad(id);if(l){l.status='Invoiced';l.invoiceId=inv.id;}});
@@ -3208,7 +3222,7 @@ function getLoad(id){return db.loads.find(function(x){return x.id===id;});}
 function getInv(id){return db.invoices.find(function(x){return x.id===id;});}
 function brokerName(l){var c=getCust(l.customerId);return c?c.name:(l.brokerName||'(removed)');}
 function nm(o,f){return o?o[f||'name']:'(removed)';}
-function loadFee(l){var d=getDrv(l.driverId);return r2(l.rate*((d?d.feePct:0)/100));}
+function loadFee(l){var d=getDrv(l.driverId);if(!d)return 0;if(isFlat(d))return flatShare(l,d);return r2(l.rate*(loadPct(l,d)/100));}
 function invFee(inv,l){return inv.fees&&inv.fees[l.id]!=null?inv.fees[l.id]:loadFee(l);}
 /* Commission is paid on what the driver actually pays, for loads counted from the November 2026 dispatch month on:
    the fee written on the load's invoice plus the load's share of the invoice adjustment (split by fee).
@@ -4644,6 +4658,7 @@ function initLoadForm(){
     var t=e.target;if(!t)return;
     if(t.id==='rcUpd'){rcState.upd=t.checked;return;}
     if(/^(brokerName|agentName|agentEmail|agentPhone|agentExt)$/.test(t.name||''))rcNote();
+    if(t.name==='driverId'&&e.type==='change')truckFieldUpd();
   };
   f.addEventListener('input',touched);f.addEventListener('change',touched);
   rcNote();
@@ -4674,6 +4689,7 @@ function loadForm(l){
     field('Load number','ref',l.ref,{required:true})+
     field('Status','status',l.status,{type:'select',options:stOpts,disabled:locked})+
     field('Driver','driverId',l.driverId,{type:'select',options:db.drivers.filter(function(d){return !isDead(d)||d.id===l.driverId;}).map(function(d){return [d.id,d.name+' · '+d.carrier+(isDead(d)?' (Dead)':'')];}),disabled:locked})+
+    truckFieldHtml(l,locked)+
     field('Broker company','brokerName',(getCust(l.customerId)||{}).name||l.brokerName||'',{required:true,list:'brokerList',hint:'Pick an existing broker or type a new company name. A new name is added to Brokers automatically.'})+
     '<datalist id="brokerList">'+db.customers.map(function(c){return '<option value="'+esc(c.name)+'">'+esc(c.contact||'')+'</option>';}).join('')+'</datalist>'+
     '<input type="hidden" name="brokerMc" id="f_brokerMc" value="'+esc(l.brokerMc||(getCust(l.customerId)||{}).mc||'')+'">'+
@@ -4716,7 +4732,7 @@ function pDrivers(){
       '<td>'+esc(d.salesAgentId?nm(getEmp(d.salesAgentId)):'—')+'</td>'+
       '<td>'+(d.dispatcherId?esc(nm(getEmp(d.dispatcherId))):(isDead(d)?'—':'<span class="pill p-delivered">Awaiting dispatcher</span>'))+(d.teamId&&getTeam(d.teamId)?'<div class="muted small">'+esc(getTeam(d.teamId).name)+'</div>':'')+'</td>'+
       '<td>'+stPill(drvStatus(d))+activeNote(d)+'</td>'+
-      '<td class="num">'+d.feePct+'%</td><td class="num">'+(dym?'<b>'+mst(d).n+'</b><div class="muted small">'+mst(d).deliv+' delivered</div>':ls.length)+'</td>'+
+      '<td class="num">'+esc(feeSummary(d))+'</td><td class="num">'+(dym?'<b>'+mst(d).n+'</b><div class="muted small">'+mst(d).deliv+' delivered</div>':ls.length)+'</td>'+
       (dym?'<td class="num"><b>'+money(mst(d).rev)+'</b><div class="muted small">'+money(mst(d).fees)+' dispatch fee</div></td>':'')+
       '<td><div class="rowact"><button class="btn sm'+(awaitingDisp(d)&&edit?' primary':'')+'" type="button" data-action="'+(awaitingDisp(d)&&edit?'edit-driver':'driver-info')+'" data-id="'+d.id+'">'+(awaitingDisp(d)&&edit?'Review':'Details')+'</button>'+chatBtn(d.id)+docsBtn(d.id)+
         (inv&&ready.length?'<button class="btn sm primary" type="button" data-action="invoice-driver" data-id="'+d.id+'">Invoice ready loads</button>':'')+
@@ -4749,7 +4765,7 @@ function driverForm(d){
     field('MC number','mc',d.mc,{required:true})+
     field('Phone','phone',d.phone,{type:'tel'})+
     field('Email','email',d.email||'',{type:'email'})+
-    field('Dispatch fee (%)','feePct',d.feePct,{type:'number',step:'0.1',min:0,max:100,required:true,hint:'Share of each load rate your company keeps.'})+
+    field('Dispatch fee (%) · truck 1','feePct',d.feePct,{type:'number',step:'0.1',min:0,max:100,required:true,hint:'Share of each load rate your company keeps, for truck 1. Add more trucks below.'})+
     ((session.role==='admin'||session.role==='accountant')&&teamsList().length?field('Dispatch team','teamId',d.teamId||'',{type:'select',options:[['','No team']].concat(teamsList().map(function(t){return [t.id,t.name];})),hint:'The team leader can then choose this driver\'s dispatcher from their team.'}):'')+
     field('Dispatcher','dispatcherId',d.dispatcherId||'',{type:'select',options:[['','None']].concat(staff('Dispatcher').map(function(e){return [e.id,e.name];})),hint:staff('Dispatcher').length?'Books this driver\'s loads and earns commission on them.':'No dispatchers yet. Add one on the Team page, then choose them here.'})+
     (d.id&&d.addedByRole==='sales'?'<p class="small full" style="margin:0;padding:8px 10px;background:var(--neutral-soft);color:inherit;border-radius:6px">Added by <b>'+esc(nm(getEmp(d.salesAgentId)))+'</b>'+(d.addedAt?' on '+fmtD(dayOf(d.addedAt)):'')+'. Check the details and documents, then choose a dispatcher. The dispatcher is notified and gets access to everything the sales agent submitted.</p>':'')+
@@ -4757,12 +4773,133 @@ function driverForm(d){
     ((session.role==='admin'||session.role==='accountant')&&d.id?field('Active date','activeDay',activeDay(d),{type:'date',hint:'The day this driver became Active. Filled in by itself when the driver is marked Active; fill it in for drivers who were active before.'}):'')+
     field('Truck type','truckType',d.truckType||'',{type:'select',options:[['','—']].concat(TRUCK_TYPES)})+
     field('Truck length (ft)','truckLen',d.truckLen||'',{type:'number',min:1,max:100,step:'1',required:!d.id,hint:d.id?'':'Required for a new driver.'})+
+    feeFields(d)+
     field('Weight capacity (lbs)','weightCap',d.weightCap||'',{type:'number',min:0,step:'1'})+
     field('ZIP code','zip',d.zip||'',{})+
     field('Accessories','accText',accList(d).join(', '),{hint:'Separate with commas.'})+
     field('Notes','notes',d.notes||'',{type:'textarea',full:true})+
     field('Sales agent','salesAgentId',d.salesAgentId||'',{type:'select',options:[['','None']].concat(staff('Sales agent').map(function(e){return [e.id,e.name];})),hint:staff('Sales agent').length?'Earns commission on this driver\'s dispatch fees.':'No sales agents yet. Add one on the Team page, then choose them here.'})+
     '<div class="formfoot">'+(d.id?'<button class="btn danger" type="button" data-action="delete-driver" data-id="'+d.id+'">Delete</button>':'')+'<button class="btn" type="button" data-action="close-modal">Cancel</button><button class="btn primary" type="submit">Save driver</button></div></form>');
+  initFeeFields();
+}
+
+/* ---------- trucks and dispatch fee ----------
+   A carrier can have more than one truck, each with its own dispatch fee %. Truck 1 is the driver's own truck type,
+   length and fee % (truckType, truckLen, feePct, as before); more trucks are in d.trucks = [{id,type,len,unit,feePct}].
+   A load names its truck (l.truckId); its fee % is that truck's % (Truck 1 when none is named).
+   Or the carrier is on a flat rate: d.feeMode='flat', d.flatRate = USD per week. The week's flat rate is shared by
+   that week's loads, and the weekly invoice comes to the flat rate. Invoiced loads keep the fee written on the invoice. */
+function isFlat(d){return !!(d&&d.feeMode==='flat'&&Number(d.flatRate)>0);}
+function drvTrucks(d){
+  if(!d)return [];
+  var main={id:'main',type:d.truckType||'',len:d.truckLen||'',unit:d.truckUnit||'',feePct:d.feePct};
+  return [main].concat(Array.isArray(d.trucks)?d.trucks.filter(function(t){return t&&t.id;}):[]);
+}
+function getTruck(d,id){var ts=drvTrucks(d);return ts.find(function(t){return t.id===(id||'main');})||ts[0]||null;}
+function truckLabel(t){if(!t)return '';return [t.type||'Truck',t.len?t.len+' ft':'',t.unit?'#'+t.unit:''].filter(Boolean).join(' · ');}
+function pctTxt(v){var n=Number(v);return isFinite(n)&&String(v).trim()!==''?(Math.round(n*100)/100)+'%':'—';}
+function loadPct(l,d){d=d||getDrv(l.driverId);if(!d)return 0;var t=l.truckId?getTruck(d,l.truckId):null;return Number(t&&t.feePct!=null&&t.feePct!==''?t.feePct:d.feePct)||0;}
+function weekLoads(d,day){var w=weekRange(day);return db.loads.filter(function(x){var k=loadDay(x);return x.driverId===d.id&&k>=w.start&&k<=w.end;});}
+function flatShare(l,d){
+  var inv=l.invoiceId?getInv(l.invoiceId):null;
+  if(inv&&inv.fees&&inv.fees[l.id]!=null)return Number(inv.fees[l.id])||0;
+  var n=weekLoads(d,loadDay(l)||TODAY).length||1;
+  return r2(Number(d.flatRate)/n);
+}
+function feeNote(l){
+  var d=getDrv(l.driverId);if(!d)return '';
+  if(isFlat(d))return 'Flat rate '+money(d.flatRate)+' a week, shared by '+plural(weekLoads(d,loadDay(l)||TODAY).length||1,'load')+' that week';
+  var t=l.truckId&&l.truckId!=='main'?getTruck(d,l.truckId):null;
+  return pctTxt(loadPct(l,d))+' of the load rate'+(t?' · '+esc(truckLabel(t)):'');
+}
+/* fees for a new invoice: the % of each load's truck, or the flat rate shared by each week's loads */
+function invFees(d,loadIds){
+  var fees={};
+  if(!isFlat(d)){loadIds.forEach(function(id){var l=getLoad(id);if(l)fees[id]=loadFee(l);});return fees;}
+  var wk={};
+  loadIds.forEach(function(id){var l=getLoad(id);if(!l)return;var k=weekRange(loadDay(l)||TODAY).start;(wk[k]=wk[k]||[]).push(id);});
+  Object.keys(wk).forEach(function(k){
+    var ids=wk[k],flat=r2(Number(d.flatRate)),each=r2(flat/ids.length),given=0;
+    ids.forEach(function(id,i){var f=i===ids.length-1?r2(flat-given):each;fees[id]=f;given=r2(given+f);});
+  });
+  return fees;
+}
+/* short summary for lists: "7% / 4%" or "Flat $300/wk" */
+function feeSummary(d){
+  if(!d)return '';
+  if(isFlat(d))return 'Flat '+money(d.flatRate)+'/wk';
+  var seen=[];drvTrucks(d).forEach(function(t){var p=pctTxt(t.feePct);if(seen.indexOf(p)<0)seen.push(p);});
+  return seen.join(' / ');
+}
+/* driver details: the trucks and the fee */
+function trucksCardHtml(d){
+  var ts=drvTrucks(d),flat=isFlat(d);
+  return '<div class="ld-card"><h3>Trucks and dispatch fee · '+plural(ts.length,'truck')+'</h3>'+
+    (flat?'<p style="margin:0 0 8px"><span class="pill p-good">Flat rate</span> <b>'+money(d.flatRate)+'</b> a week. The weekly invoice comes to this amount, shared by that week\'s loads.</p>':'')+
+    '<div class="trklist">'+ts.map(function(t,i){
+      return '<div class="trkline"><span class="trkno">'+(i+1)+'</span><span class="trkname">'+esc(truckLabel(t))+'</span><b class="trkpct">'+(flat?'<span class="muted" style="font-weight:400">flat rate</span>':pctTxt(t.feePct))+'</b></div>';
+    }).join('')+'</div></div>';
+}
+/* driver forms: fee type, flat rate and more trucks */
+function truckRowHtml(t,i){
+  t=t||{};
+  return '<div class="trkrow" data-i="'+i+'"><input type="hidden" name="trk_id_'+i+'" value="'+esc(t.id||'')+'">'+
+    '<select name="trk_type_'+i+'" aria-label="Truck type '+(i+2)+'"><option value="">Truck type…</option>'+TRUCK_TYPES.map(function(x){return '<option'+(x===t.type?' selected':'')+'>'+esc(x)+'</option>';}).join('')+'</select>'+
+    '<input name="trk_len_'+i+'" type="number" min="1" max="100" step="1" inputmode="numeric" placeholder="Length ft" aria-label="Truck length '+(i+2)+'" value="'+esc(t.len||'')+'">'+
+    '<input name="trk_unit_'+i+'" placeholder="Truck # (optional)" aria-label="Truck number '+(i+2)+'" value="'+esc(t.unit||'')+'">'+
+    '<input name="trk_pct_'+i+'" type="number" min="0" max="100" step="0.1" inputmode="decimal" placeholder="Fee %" aria-label="Dispatch fee % for truck '+(i+2)+'" value="'+esc(t.feePct!=null?t.feePct:'')+'">'+
+    '<button class="btn sm" type="button" data-action="trk-del" aria-label="Remove truck '+(i+2)+'">Remove</button></div>';
+}
+function feeFields(d){
+  var more=Array.isArray(d.trucks)?d.trucks:[];
+  return field('Dispatch fee type','feeMode',isFlat(d)?'flat':'pct',{type:'select',options:[['pct','Percentage of each load (per truck)'],['flat','Flat rate per week']],hint:'Flat rate: the weekly invoice comes to the amount below, whatever the loads.'})+
+    '<label class="field" id="flatWrap"'+(isFlat(d)?'':' hidden')+'><span>Flat rate (USD per week)</span><input id="f_flatRate" name="flatRate" type="number" min="0" step="0.01" inputmode="decimal" value="'+esc(d.flatRate||'')+'"><small>Shared by that week\'s loads.</small></label>'+
+    '<fieldset class="field full trkset"><span>More trucks</span><small>Truck 1 is the truck type, length and dispatch fee % above. Add the carrier\'s other trucks, each with its own %.</small>'+
+      '<div id="trkRows">'+more.map(truckRowHtml).join('')+'</div>'+
+      '<button class="linkbtn" type="button" data-action="trk-add">+ Add a truck</button></fieldset>';
+}
+function initFeeFields(){
+  var f=document.querySelector('form [name=feeMode]');if(!f)return;
+  var upd=function(){var w=$('flatWrap');if(w)w.hidden=f.value!=='flat';};
+  f.addEventListener('change',upd);upd();
+}
+/* reads the fee fields into rec; returns an error text or '' */
+function readFeeFields(d,rec,old){
+  if(d.feeMode===undefined)return '';
+  rec.feeMode=d.feeMode==='flat'?'flat':'pct';
+  var fr=Number(String(d.flatRate||'').trim());
+  if(rec.feeMode==='flat'){if(!isFinite(fr)||fr<=0)return 'Enter the flat rate per week in USD, for example 300.';rec.flatRate=Math.round(fr*100)/100;}
+  else rec.flatRate='';
+  var ts=[],bad='';
+  Object.keys(d).forEach(function(k){var m=/^trk_type_(\d+)$/.exec(k);if(!m)return;
+    var i=m[1],type=String(d['trk_type_'+i]||''),len=String(d['trk_len_'+i]||'').trim(),unit=String(d['trk_unit_'+i]||'').trim().slice(0,20),pct=String(d['trk_pct_'+i]||'').trim();
+    if(!type&&!len&&!unit&&!pct)return;
+    if(!type){bad='Choose the truck type for every added truck.';return;}
+    if(len&&!truckLenOf(len)){bad='Enter each truck length in feet, for example 48.';return;}
+    var p=Number(pct);
+    if(rec.feeMode==='pct'&&(pct===''||!isFinite(p)||p<=0||p>100)){bad='Enter the dispatch fee % (0.1 to 100) for every added truck.';return;}
+    ts.push({id:String(d['trk_id_'+i]||'')||uid('t'),type:TRUCK_TYPES.indexOf(type)>-1?type:'Other',len:truckLenOf(len),unit:unit,feePct:pct===''||!isFinite(p)?'':Math.round(p*100)/100});
+  });
+  if(bad)return bad;
+  rec.trucks=ts;
+  return '';
+}
+/* load form: the chosen driver's trucks */
+function truckOptions(d){
+  return drvTrucks(d).map(function(t,i){return [t.id,(i+1)+'. '+truckLabel(t)+(isFlat(d)?'':' · '+pctTxt(t.feePct))];});
+}
+function truckFieldHtml(l,locked){
+  var d=getDrv(l.driverId);
+  return '<label class="field" id="truckWrap"><span>Truck</span><select id="f_truckId" name="truckId"'+(locked?' disabled':'')+'>'+
+    truckOptions(d).map(function(o){return '<option value="'+esc(o[0])+'"'+(o[0]===(l.truckId||'main')?' selected':'')+'>'+esc(o[1])+'</option>';}).join('')+
+    '</select><small id="truckHint">'+esc(truckHint(d))+'</small></label>';
+}
+function truckHint(d){if(!d)return '';return isFlat(d)?'Flat rate '+money(d.flatRate).replace(/\.00$/,'')+' a week, so the truck does not change the fee.':'The dispatch fee is this truck\'s %.';}
+function truckFieldUpd(){
+  var f=loadFormEl();if(!f)return;var sel=f.querySelector('[name=truckId]'),dsel=f.querySelector('[name=driverId]');if(!sel||!dsel||sel.disabled)return;
+  var d=getDrv(dsel.value),cur=sel.value,opts=truckOptions(d);
+  sel.innerHTML=opts.map(function(o){return '<option value="'+esc(o[0])+'"'+(o[0]===cur?' selected':'')+'>'+esc(o[1])+'</option>';}).join('');
+  var h=$('truckHint');if(h)h.textContent=truckHint(d);
 }
 
 /* ---------- brokers ---------- */
@@ -4967,10 +5104,10 @@ function invoiceDoc(inv){
       '<div class="ibox"><div class="ihd">Bill to</div><div class="iname">'+esc(nm(d,'carrier'))+'</div>'+
         '<div class="iln">Driver: '+esc(nm(d))+'</div>'+(d&&d.mc?'<div class="iln">'+esc(/^mc/i.test(String(d.mc))?d.mc:'MC '+d.mc)+'</div>':'')+(d&&d.phone?'<div class="iln">'+esc(fmtPhone(d.phone))+'</div>':'')+(d&&d.email?'<div class="iln">'+esc(d.email).replace('@','@<wbr>')+'</div>':'')+'</div>'+
       '<div class="ibox"><div class="ihd">Loads delivered</div><div class="iname">'+esc(delivRange(ls))+'</div><div class="iln">'+plural(ls.length,'load')+' on this invoice</div>'+
-        '<div class="ihd" style="margin-top:10px">Dispatch fee</div>'+(d&&d.feePct!=null&&d.feePct!==''?'<div class="iname">'+esc(d.feePct)+'%</div><div class="iln">of each load rate</div>':'<div class="iln">Not set</div>')+'</div>'+
+        '<div class="ihd" style="margin-top:10px">Dispatch fee</div>'+(isFlat(d)?'<div class="iname">'+money(d.flatRate)+'</div><div class="iln">flat rate per week</div>':d&&d.feePct!=null&&d.feePct!==''?'<div class="iname">'+esc(feeSummary(d))+'</div><div class="iln">of each load rate'+(drvTrucks(d).length>1?', by truck':'')+'</div>':'<div class="iln">Not set</div>')+'</div>'+
     '</div>'+
     '<div class="tablewrap"><table><thead><tr><th>Load</th><th>Route</th><th>Delivered</th><th class="num">Miles</th><th class="num">Load rate</th><th class="num">Dispatch fee</th></tr></thead><tbody>'+
-    ls.map(function(l){var f=invFee(inv,l);return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">Broker: '+esc(brokerName(l))+'</span></div></td><td>'+fmtD(l.delivery)+'</td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(f)+'</td></tr>';}).join('')+
+    ls.map(function(l){var f=invFee(inv,l);return '<tr><td><span class="mono">'+esc(l.ref)+'</span></td><td><div class="stack"><span>'+esc(l.origin)+' to '+esc(l.dest)+'</span><span class="muted small">Broker: '+esc(brokerName(l))+'</span>'+(d&&drvTrucks(d).length>1&&l.truckId?'<span class="muted small">Truck: '+esc(truckLabel(getTruck(d,l.truckId)))+(isFlat(d)?'':' · '+pctTxt(loadPct(l,d)))+'</span>':'')+'</div></td><td>'+fmtD(l.delivery)+'</td><td class="num">'+NUM.format(l.miles)+'</td><td class="num">'+money(l.rate)+'</td><td class="num">'+money(f)+'</td></tr>';}).join('')+
     '</tbody></table></div>'+
     (invAdj(inv)?'<div class="totals" style="margin-bottom:0"><div><span><b>Adjustment</b>'+(invAdj(inv).label&&invAdj(inv).label!=='Adjustment'?' · '+esc(invAdj(inv).label):'')+'</span><span>'+(invAdj(inv).amount<0?'−'+money(-invAdj(inv).amount):'+'+money(invAdj(inv).amount))+'</span></div></div>':'')+
     '<div class="totals"><div><span>Loads</span><span>'+ls.length+'</span></div><div><span>Miles</span><span>'+NUM.format(miles)+'</span></div><div><span>Load rates (for reference)</span><span>'+money(rate)+'</span></div><div class="grand"><span>Dispatch fee due</span><span>'+money(inv.total)+'</span></div></div>'+
@@ -4989,8 +5126,8 @@ function delivRange(ls){
 function invoiceText(inv){
   var d=getDrv(inv.driverId),s=db.settings;
   var ls=inv.loadIds.map(getLoad).filter(Boolean);
-  var t=['DISPATCH FEE INVOICE '+inv.no,'','From: '+s.company,'Powered by Prohauls Services','To: '+nm(d,'carrier')+' ('+(d?d.mc:'')+'), driver '+nm(d),'Dispatch fee: '+(d&&d.feePct!=null&&d.feePct!==''?d.feePct+'% of each load rate':'not set'),'Issued: '+fmtD(inv.issued),'Due: '+fmtD(inv.due),'','LOADS'];
-  ls.forEach(function(l){t.push(l.ref+' | '+l.origin+' to '+l.dest+' | delivered '+fmtD(l.delivery)+' | load rate '+money(l.rate)+' | dispatch fee '+(d?d.feePct+'% = ':'')+money(invFee(inv,l)));});
+  var t=['DISPATCH FEE INVOICE '+inv.no,'','From: '+s.company,'Powered by Prohauls Services','To: '+nm(d,'carrier')+' ('+(d?d.mc:'')+'), driver '+nm(d),'Dispatch fee: '+(isFlat(d)?money(d.flatRate)+' flat rate per week':d&&d.feePct!=null&&d.feePct!==''?feeSummary(d)+' of each load rate':'not set'),'Issued: '+fmtD(inv.issued),'Due: '+fmtD(inv.due),'','LOADS'];
+  ls.forEach(function(l){t.push(l.ref+' | '+l.origin+' to '+l.dest+' | delivered '+fmtD(l.delivery)+' | load rate '+money(l.rate)+' | dispatch fee '+(d?(isFlat(d)?'flat rate share = ':pctTxt(loadPct(l,d))+' = '):'')+money(invFee(inv,l)));});
   if(invAdj(inv))t.push('Adjustment'+(invAdj(inv).label&&invAdj(inv).label!=='Adjustment'?' ('+invAdj(inv).label+')':'')+': '+(invAdj(inv).amount<0?'-'+money(-invAdj(inv).amount):'+'+money(invAdj(inv).amount)));
   if(inv.note)t.push('','Note: '+inv.note);
   t.push('','TOTAL DISPATCH FEE DUE: '+money(inv.total),'',s.payInstr,'Issued by '+s.company);
@@ -6865,6 +7002,11 @@ var actions={
   'broker-panel':function(el){openBroker(el.dataset.id);},
   'bp-agent':function(el){bp.agent=bp.agent===el.dataset.a?'':el.dataset.a;bpRefresh();},
   'bp-clear':function(){bp.agent='';bp.driver='';bpRefresh();},
+  'trk-add':function(el){
+    var box=$('trkRows');if(!box)return;
+    var i=0;box.querySelectorAll('.trkrow').forEach(function(r){i=Math.max(i,Number(r.dataset.i)+1);});
+    box.insertAdjacentHTML('beforeend',truckRowHtml({},i));var sel=box.lastElementChild&&box.lastElementChild.querySelector('select');if(sel)sel.focus();},
+  'trk-del':function(el){var r=el.closest('.trkrow');if(r)r.remove();},
   'bp-rate':function(el){
     var c=getCust(bp.id);if(!c)return;var r=el.dataset.r;
     if(c.rating===r){delete c.rating;delete c.ratingBy;delete c.ratingAt;}
@@ -7226,8 +7368,9 @@ var forms={
     var rcIn=f.querySelector('#loadRcFile'),rcFile=rcIn&&rcIn.files&&rcIn.files[0];
     if(rcFile){var bad=checkDocFile(rcFile);if(bad){toast('RC: '+bad);return;}}
     if(l&&(l.status==='Invoiced'||l.status==='Paid')){closeModal();return;}
-    var rec={ref:d.ref.trim(),driverId:d.driverId,customerId:'',dispatcherId:d.dispatcherId,origin:d.origin.trim(),dest:d.dest.trim(),pickup:d.pickup,delivery:d.delivery,miles:numv(d.miles),deadhead:numv(d.deadhead),rate:r2(numv(d.rate)),extras:0,status:d.status};
+    var rec={ref:d.ref.trim(),driverId:d.driverId,truckId:'',customerId:'',dispatcherId:d.dispatcherId,origin:d.origin.trim(),dest:d.dest.trim(),pickup:d.pickup,delivery:d.delivery,miles:numv(d.miles),deadhead:numv(d.deadhead),rate:r2(numv(d.rate)),extras:0,status:d.status};
     if(!okDate(rec.pickup)||!okDate(rec.delivery)){toast('Enter the dates as YYYY-MM-DD, or pick them from the calendar.');return;}
+    var tk=getTruck(getDrv(rec.driverId),d.truckId);rec.truckId=tk&&tk.id!=='main'?tk.id:'';
     if(rec.delivery<rec.pickup){toast('Delivery date is before pickup.');return;}
     var bname=String(d.brokerName||'').trim();
     if(!bname){toast('Enter the broker company name.');return;}
@@ -7279,6 +7422,7 @@ var forms={
       rec.accessories=acc.filter(function(x){return ACCESSORIES.indexOf(x)>-1;});rec.accOther=acc.filter(function(x){return ACCESSORIES.indexOf(x)<0;}).join(', ');
     }
     var cur=d.id?getDrv(d.id):null,want=d.driverStatus;
+    var feeErr=readFeeFields(d,rec,cur);if(feeErr){toast(feeErr);return;}
     if(want&&DSTATUS.indexOf(want)>-1&&(!cur||drvStatus(cur)!==want)){
       if(want==='Active'&&(!cur||!doneLoads(cur).length)){toast('A driver can be marked Active after their first completed load.');return;}
       var now=new Date().toISOString();rec.driverStatus=want;rec.statusAt=now;rec.statusBy=session.name||session.email;
