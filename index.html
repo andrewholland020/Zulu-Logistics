@@ -1032,6 +1032,16 @@ html[data-mode="dark"] .modeseg button[aria-checked="true"],html[data-skin="dark
 .trkno{width:22px;height:22px;border-radius:50%;background:var(--surface2);display:inline-flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;flex:none}
 .trkname{flex:1;min-width:0}
 .trkpct{white-space:nowrap}
+/* invoice: payment method cards */
+.paycards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:4px 0 6px}
+.paycard{position:relative;display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.paycard:hover{border-color:var(--accent)}
+.paycard input{position:absolute;opacity:0;pointer-events:none}
+.paycard:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+.paycard:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.pcic{width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:#fff;flex:none}
+.pc-cashapp{background:#00c244}.pc-zelle{background:#6d1ed4}.pc-others{background:#6b7686}
+@media (max-width:560px){.paycards{grid-template-columns:1fr}}
 /* "Powered by Prohauls Services" under the company name and on every document */
 .plate::after{content:"Powered by Prohauls Services";font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;opacity:.72;white-space:nowrap}
 html[data-skin]:not([data-skin="light"]):not([data-skin="dark"]) .plate::before{grid-row:1/4}
@@ -5155,13 +5165,16 @@ function mailBody(inv){
 /* TAX on an invoice: what the payment app (Zelle, Cashapp or another) took. The invoice amount stays the same;
    "Driver paid" is the amount that reached us after the tax. */
 var TAX_METHODS=['Zelle','Cashapp','Others'];
+function payMethodName(m){return m==='Cashapp'?'Cash App':m;}
+/* the payment method saved on the invoice (with or without TAX) */
+function invPayMethod(inv){var m=inv&&(inv.payMethod||(inv.tax&&Number(inv.tax.amount)>0?inv.tax.method:''));return TAX_METHODS.indexOf(m)>-1?m:'';}
 function invTax(inv){return inv&&inv.tax&&Number(inv.tax.amount)>0?{method:TAX_METHODS.indexOf(inv.tax.method)>-1?inv.tax.method:'Others',amount:r2(Number(inv.tax.amount))}:null;}
 function invNet(inv){var t=invTax(inv);return r2((Number(inv.total)||0)-(t?t.amount:0));}
 function invMethod(inv){
-  var t=invTax(inv);if(t)return t.method;
+  var pm=invPayMethod(inv);if(pm)return payMethodName(pm);
   var c=(typeof payClaims!=='undefined'&&payClaims[inv.id]||[]).find(function(x){return x.status!=='rejected';});
   if(!c||!c.method)return '';var m=String(c.method).toLowerCase();
-  return m==='zelle'?'Zelle':m==='cashapp'||m==='cash app'?'Cashapp':'Others';
+  return m==='zelle'?'Zelle':m==='cashapp'||m==='cash app'?'Cash App':'Others';
 }
 function invAdj(inv){return inv.adj&&Number(inv.adj.amount)?{label:inv.adj.label||'Adjustment',amount:Number(inv.adj.amount)}:null;}
 function invTotal(inv){
@@ -5208,7 +5221,7 @@ function invoiceDetail(id){
       kpi('Dispatch fees',money(fees),plural(ls.length,'load'))+
       kpi('Adjustment',a?(a.amount<0?'−'+money(-a.amount):'+'+money(a.amount)):'—',a&&a.label&&a.label!=='Adjustment'?esc(a.label):(a?'on this invoice':'none'))+
       kpi('Load revenue',money(rev),'total of the load rates')+
-      (invTax(inv)||paid?kpi('Driver paid',paid?money(invNet(inv)):'—',invTax(inv)?'after '+money(invTax(inv).amount)+' TAX · '+esc(invTax(inv).method):(invMethod(inv)?esc(invMethod(inv)):'no TAX')):'')+
+      (invTax(inv)||paid?kpi('Driver paid',paid?money(invNet(inv)):'—',invTax(inv)?'after '+money(invTax(inv).amount)+' TAX · '+esc(invMethod(inv)):(invMethod(inv)?esc(invMethod(inv)):'no TAX')):'')+
     '</div>'+
     '<div class="ld-card"><h3>Dates</h3><ol class="ld-steps three">'+steps.map(function(x,i){var ok=x[2],prevOk=i>0&&steps[i-1][2];
       return '<li class="'+(ok?'done':'')+(ok&&prevOk?' linked':'')+((paid&&i===2)||(!paid&&i===(ok?1:0))?' now':'')+'"><span class="ld-ck"'+(over&&i===1?' style="background:var(--bad);border-color:var(--bad)"':'')+'>'+(ok?(over&&i===1?'!':'&#10003;'):'')+'</span><b>'+x[0]+'</b><small>'+(x[1]||'&nbsp;')+'</small></li>';}).join('')+'</ol></div>'+
@@ -5242,8 +5255,8 @@ function invDraft(inv){
   var lines=[];
   inv.loadIds.forEach(function(id){var l=getLoad(id);if(l)lines.push({id:id,fee:invFee(inv,l)});});
   return {id:inv.id,no:inv.no,driverId:inv.driverId,issued:inv.issued,due:inv.due,status:inv.status==='Paid'?'Paid':'Pending',paidOn:inv.paidOn||'',countOn:okDate(inv.countOn)?inv.countOn:'',
-    adjLabel:inv.adj?inv.adj.label:'',adjAmount:inv.adj?inv.adj.amount:'',taxMethod:invTax(inv)?invTax(inv).method:'',taxAmount:invTax(inv)?invTax(inv).amount:'',
-    extraType:invTax(inv)&&!invAdj(inv)?'tax':'adj',note:inv.note||'',lines:lines};
+    adjLabel:inv.adj?inv.adj.label:'',adjAmount:inv.adj?inv.adj.amount:'',taxMethod:invPayMethod(inv),taxAmount:invTax(inv)?invTax(inv).amount:'',
+    extraType:(invTax(inv)||invPayMethod(inv))&&!invAdj(inv)?'tax':'adj',note:inv.note||'',lines:lines};
 }
 function readInvDraft(f){
   var d=formData(f);
@@ -5274,14 +5287,17 @@ function invoiceEditForm(dr){
     field('Paid on','paidOn',dr.paidOn,{type:'date',hint:'Used when the status is Paid. Leave blank to use today.'})+
     field('Count in week / month of','countOn',dr.countOn,{type:'date',hint:'Optional. Leave blank to count this invoice in the week and month of its issue date. To put it in another week or month (Overview, Invoices, Monthly Report), pick any day of that week or month.'})+
     '<div class="full"><div class="lbl" style="margin-bottom:6px">Loads and dispatch fees</div><div class="tablewrap">'+(rows?'<table class="tight" style="min-width:560px"><thead><tr><th>Load</th><th>Route</th><th class="num">Load rate</th><th class="num">Dispatch fee ($)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="empty">No loads on this invoice. Add one below.</div>')+'</div>'+addRow+'</div>'+
-    field('Adjustment or TAX','extraType',dr.extraType,{type:'select',options:[['adj','Adjustment'],['tax','TAX']],hint:'Adjustment changes the invoice amount. TAX is what the payment app took; the invoice amount stays the same.'})+
+    field('Adjustment or TAX','extraType',dr.extraType,{type:'select',options:[['adj','Adjustment'],['tax','TAX / Payment method']],hint:'Adjustment changes the invoice amount. TAX / Payment method: how the driver paid, and what the payment app took. The invoice amount stays the same.'})+
     '<div id="adjBox" style="display:'+(dr.extraType==='tax'?'none':'contents')+'">'+
       field('Adjustment label','adjLabel',dr.adjLabel,{hint:'Optional extra line, for example Late fee or Discount.'})+
       field('Adjustment amount ($)','adjAmount',dr.adjAmount,{type:'number',step:'0.01',hint:'Use a minus sign for a discount.'})+
     '</div>'+
     '<div id="taxBox" style="display:'+(dr.extraType==='tax'?'contents':'none')+'">'+
-      field('Payment method','taxMethod',dr.taxMethod||'Zelle',{type:'select',options:TAX_METHODS.map(function(m){return [m,m];})})+
-      field('TAX amount ($)','taxAmount',dr.taxAmount,{type:'number',step:'0.01',min:0,inputmode:'decimal',hint:'Taken out of the driver\'s payment.'})+
+      '<div class="field full"><span>Payment method</span><div class="paycards" role="radiogroup" aria-label="Payment method">'+
+        [['Cashapp','Cash App','$'],['Zelle','Zelle','Z'],['Others','Others','&#8230;']].map(function(x){
+          return '<label class="paycard"><input type="radio" name="taxMethod" value="'+x[0]+'"'+(dr.taxMethod===x[0]?' checked':'')+'><span class="pcic pc-'+x[0].toLowerCase()+'" aria-hidden="true">'+x[2]+'</span><b>'+x[1]+'</b></label>';}).join('')+
+        '</div><small>How the driver paid. It shows in the Payment method column, with or without TAX. <button class="linkbtn" type="button" data-action="paymethod-clear">Clear</button></small></div>'+
+      field('TAX amount ($)','taxAmount',dr.taxAmount,{type:'number',step:'0.01',min:0,inputmode:'decimal',hint:'Optional. Taken out of the driver\'s payment. Leave blank if there was no TAX.'})+
     '</div>'+
     field('Note on this invoice','note',dr.note,{type:'textarea',full:true,hint:'Shown above the payment note.'})+
     '<div class="full invprev"><span>Invoice total</span><b id="invPrev">'+money(draftTotal(dr))+'</b></div>'+
@@ -7046,6 +7062,7 @@ var actions={
     var i=0;box.querySelectorAll('.trkrow').forEach(function(r){i=Math.max(i,Number(r.dataset.i)+1);});
     box.insertAdjacentHTML('beforeend',truckRowHtml({},i));var sel=box.lastElementChild&&box.lastElementChild.querySelector('select');if(sel)sel.focus();},
   'trk-del':function(el){var r=el.closest('.trkrow');if(r)r.remove();},
+  'paymethod-clear':function(el){var f=el.closest('form');if(f)Array.prototype.forEach.call(f.querySelectorAll('[name=taxMethod]'),function(r){r.checked=false;});},
   'bp-rate':function(el){
     var c=getCust(bp.id);if(!c)return;var r=el.dataset.r;
     if(c.rating===r){delete c.rating;delete c.ratingBy;delete c.ratingAt;}
@@ -7336,7 +7353,10 @@ var forms={
     var taxAmt=String(dr.taxAmount||'').trim()===''?0:Number(dr.taxAmount);
     if(!(taxAmt>=0)){toast('The TAX amount cannot be negative.');return;}
     inv.adj=Number(dr.adjAmount)?{label:(dr.adjLabel||'').trim()||'Adjustment',amount:r2(Number(dr.adjAmount))}:null;
-    inv.tax=taxAmt>0?{method:TAX_METHODS.indexOf(dr.taxMethod)>-1?dr.taxMethod:'Others',amount:r2(taxAmt)}:null;
+    var pm=TAX_METHODS.indexOf(dr.taxMethod)>-1?dr.taxMethod:'';
+    if(taxAmt>0&&!pm){toast('Choose the payment method (Cash App, Zelle or Others) for the TAX.');return;}
+    inv.payMethod=pm;
+    inv.tax=taxAmt>0?{method:pm,amount:r2(taxAmt)}:null;
     inv.countOn=dr.countOn&&dr.countOn!==dr.issued?dr.countOn:'';
     inv.note=dr.note.trim();inv.total=invTotal(inv);syncNetFees();
     persist();render();viewInvoice(inv.id);toast('Invoice saved');
