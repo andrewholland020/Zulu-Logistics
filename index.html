@@ -5080,9 +5080,13 @@ function invListHtml(){
   }).filter(function(i){return invMatch(i,ui.invQ.trim().toLowerCase());});
   var list=shown.slice().sort(function(a,b){return b.no.localeCompare(a.no);}).map(function(i){
     return '<tr class="rowlink" data-action="invoice-row" data-id="'+i.id+'" title="Click for invoice details"><td><span class="mono">'+esc(i.no)+'</span></td><td>'+esc(nm(getDrv(i.driverId)))+'</td>'+
-      '<td>'+fmtD(i.issued)+(invMoved(i)?'<div class="small" style="color:var(--warn)">Counts in '+esc(ymLabel(ymOfDate(i.countOn)))+' · week of '+esc(shortD(i.countOn))+'</div>':'')+'</td><td>'+fmtD(i.due)+'</td><td class="num">'+money(i.total)+'</td><td>'+pill(invStatus(i))+(openClaim(i.id)&&i.status!=='Paid'?'<div class="small" style="color:var(--accent);font-weight:700">Driver says paid</div>':'')+(invMails[i.id]?'<div class="small muted" title="'+esc(invMailWhen(invMails[i.id][0]))+'">&#9993; Emailed '+esc(fmtD(dayOf(invMails[i.id][0].sent_at)))+'</div>':'')+'</td>'+
+      '<td>'+fmtD(i.issued)+(invMoved(i)?'<div class="small" style="color:var(--warn)">Counts in '+esc(ymLabel(ymOfDate(i.countOn)))+' · week of '+esc(shortD(i.countOn))+'</div>':'')+'</td><td>'+fmtD(i.due)+'</td><td class="num">'+money(i.total)+'</td>'+
+      '<td>'+(invMethod(i)?esc(invMethod(i)):'<span class="muted">—</span>')+'</td>'+
+      '<td class="num">'+(invTax(i)?money(invTax(i).amount):'<span class="muted">—</span>')+'</td>'+
+      '<td class="num">'+(i.status==='Paid'?'<b>'+money(invNet(i))+'</b>':'<span class="muted">—</span>')+'</td>'+
+      '<td>'+pill(invStatus(i))+(openClaim(i.id)&&i.status!=='Paid'?'<div class="small" style="color:var(--accent);font-weight:700">Driver says paid</div>':'')+(invMails[i.id]?'<div class="small muted" title="'+esc(invMailWhen(invMails[i.id][0]))+'">&#9993; Emailed '+esc(fmtD(dayOf(invMails[i.id][0].sent_at)))+'</div>':'')+'</td>'+
       '<td><div class="rowact"><button class="btn sm" type="button" data-action="view-invoice" data-id="'+i.id+'">Open</button>'+(can('invoice')?'<button class="btn sm danger" type="button" data-action="delete-invoice" data-id="'+i.id+'">Delete</button>':'')+'</div></td></tr>';}).join('');
-  return (list?'<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Driver</th><th>Issued</th><th>Due</th><th class="num">Amount</th><th>Status</th><th></th></tr></thead><tbody>'+list+'</tbody></table></div>':'<div class="empty">'+(ui.invQ.trim()?'No invoices match your search.':'No invoices yet.')+'</div>');
+  return (list?'<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Driver</th><th>Issued</th><th>Due</th><th class="num">Amount</th><th>Payment method</th><th class="num">Tax</th><th class="num">Driver paid</th><th>Status</th><th></th></tr></thead><tbody>'+list+'</tbody></table></div>':'<div class="empty">'+(ui.invQ.trim()?'No invoices match your search.':'No invoices yet.')+'</div>');
 }
 /* invoices: filter by the dispatch month the invoice was issued in */
 function invMonthSel(){
@@ -5148,6 +5152,17 @@ function mailBody(inv){
   var d=getDrv(inv.driverId),s=db.settings;
   return 'Hello '+(d?d.name:'')+',\n\nHere is your dispatch fee invoice. The amount due is '+money(inv.total)+' by '+fmtD(inv.due)+'.\n\n'+invoiceText(inv)+'\n\nThank you,\n'+s.company+(s.phone?'\n'+s.phone:'');
 }
+/* TAX on an invoice: what the payment app (Zelle, Cashapp or another) took. The invoice amount stays the same;
+   "Driver paid" is the amount that reached us after the tax. */
+var TAX_METHODS=['Zelle','Cashapp','Others'];
+function invTax(inv){return inv&&inv.tax&&Number(inv.tax.amount)>0?{method:TAX_METHODS.indexOf(inv.tax.method)>-1?inv.tax.method:'Others',amount:r2(Number(inv.tax.amount))}:null;}
+function invNet(inv){var t=invTax(inv);return r2((Number(inv.total)||0)-(t?t.amount:0));}
+function invMethod(inv){
+  var t=invTax(inv);if(t)return t.method;
+  var c=(typeof payClaims!=='undefined'&&payClaims[inv.id]||[]).find(function(x){return x.status!=='rejected';});
+  if(!c||!c.method)return '';var m=String(c.method).toLowerCase();
+  return m==='zelle'?'Zelle':m==='cashapp'||m==='cash app'?'Cashapp':'Others';
+}
 function invAdj(inv){return inv.adj&&Number(inv.adj.amount)?{label:inv.adj.label||'Adjustment',amount:Number(inv.adj.amount)}:null;}
 function invTotal(inv){
   var t=0;inv.loadIds.forEach(function(id){var l=getLoad(id);if(l)t+=invFee(inv,l);});
@@ -5193,6 +5208,7 @@ function invoiceDetail(id){
       kpi('Dispatch fees',money(fees),plural(ls.length,'load'))+
       kpi('Adjustment',a?(a.amount<0?'−'+money(-a.amount):'+'+money(a.amount)):'—',a&&a.label&&a.label!=='Adjustment'?esc(a.label):(a?'on this invoice':'none'))+
       kpi('Load revenue',money(rev),'total of the load rates')+
+      (invTax(inv)||paid?kpi('Driver paid',paid?money(invNet(inv)):'—',invTax(inv)?'after '+money(invTax(inv).amount)+' TAX · '+esc(invTax(inv).method):(invMethod(inv)?esc(invMethod(inv)):'no TAX')):'')+
     '</div>'+
     '<div class="ld-card"><h3>Dates</h3><ol class="ld-steps three">'+steps.map(function(x,i){var ok=x[2],prevOk=i>0&&steps[i-1][2];
       return '<li class="'+(ok?'done':'')+(ok&&prevOk?' linked':'')+((paid&&i===2)||(!paid&&i===(ok?1:0))?' now':'')+'"><span class="ld-ck"'+(over&&i===1?' style="background:var(--bad);border-color:var(--bad)"':'')+'>'+(ok?(over&&i===1?'!':'&#10003;'):'')+'</span><b>'+x[0]+'</b><small>'+(x[1]||'&nbsp;')+'</small></li>';}).join('')+'</ol></div>'+
@@ -5226,12 +5242,13 @@ function invDraft(inv){
   var lines=[];
   inv.loadIds.forEach(function(id){var l=getLoad(id);if(l)lines.push({id:id,fee:invFee(inv,l)});});
   return {id:inv.id,no:inv.no,driverId:inv.driverId,issued:inv.issued,due:inv.due,status:inv.status==='Paid'?'Paid':'Pending',paidOn:inv.paidOn||'',countOn:okDate(inv.countOn)?inv.countOn:'',
-    adjLabel:inv.adj?inv.adj.label:'',adjAmount:inv.adj?inv.adj.amount:'',note:inv.note||'',lines:lines};
+    adjLabel:inv.adj?inv.adj.label:'',adjAmount:inv.adj?inv.adj.amount:'',taxMethod:invTax(inv)?invTax(inv).method:'',taxAmount:invTax(inv)?invTax(inv).amount:'',
+    extraType:invTax(inv)&&!invAdj(inv)?'tax':'adj',note:inv.note||'',lines:lines};
 }
 function readInvDraft(f){
   var d=formData(f);
   var lines=String(d.lines||'').split(',').filter(Boolean).map(function(id){return {id:id,fee:d['fee_'+id]==null?'':d['fee_'+id]};});
-  return {id:d.id,no:d.no||'',driverId:d.driverId,issued:d.issued||'',due:d.due||'',status:d.status,paidOn:d.paidOn||'',countOn:d.countOn||'',adjLabel:d.adjLabel||'',adjAmount:d.adjAmount||'',note:d.note||'',lines:lines,addLoad:d.addLoad||''};
+  return {id:d.id,no:d.no||'',driverId:d.driverId,issued:d.issued||'',due:d.due||'',status:d.status,paidOn:d.paidOn||'',countOn:d.countOn||'',adjLabel:d.adjLabel||'',adjAmount:d.adjAmount||'',taxMethod:d.taxMethod||'',taxAmount:d.taxAmount||'',extraType:d.extraType==='tax'?'tax':'adj',note:d.note||'',lines:lines,addLoad:d.addLoad||''};
 }
 function draftTotal(dr){
   var t=0;dr.lines.forEach(function(x){t+=Number(x.fee)||0;});
@@ -5257,16 +5274,28 @@ function invoiceEditForm(dr){
     field('Paid on','paidOn',dr.paidOn,{type:'date',hint:'Used when the status is Paid. Leave blank to use today.'})+
     field('Count in week / month of','countOn',dr.countOn,{type:'date',hint:'Optional. Leave blank to count this invoice in the week and month of its issue date. To put it in another week or month (Overview, Invoices, Monthly Report), pick any day of that week or month.'})+
     '<div class="full"><div class="lbl" style="margin-bottom:6px">Loads and dispatch fees</div><div class="tablewrap">'+(rows?'<table class="tight" style="min-width:560px"><thead><tr><th>Load</th><th>Route</th><th class="num">Load rate</th><th class="num">Dispatch fee ($)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="empty">No loads on this invoice. Add one below.</div>')+'</div>'+addRow+'</div>'+
-    field('Adjustment label','adjLabel',dr.adjLabel,{hint:'Optional extra line, for example Late fee or Discount.'})+
-    field('Adjustment amount ($)','adjAmount',dr.adjAmount,{type:'number',step:'0.01',hint:'Use a minus sign for a discount.'})+
+    field('Adjustment or TAX','extraType',dr.extraType,{type:'select',options:[['adj','Adjustment'],['tax','TAX']],hint:'Adjustment changes the invoice amount. TAX is what the payment app took; the invoice amount stays the same.'})+
+    '<div id="adjBox" style="display:'+(dr.extraType==='tax'?'none':'contents')+'">'+
+      field('Adjustment label','adjLabel',dr.adjLabel,{hint:'Optional extra line, for example Late fee or Discount.'})+
+      field('Adjustment amount ($)','adjAmount',dr.adjAmount,{type:'number',step:'0.01',hint:'Use a minus sign for a discount.'})+
+    '</div>'+
+    '<div id="taxBox" style="display:'+(dr.extraType==='tax'?'contents':'none')+'">'+
+      field('Payment method','taxMethod',dr.taxMethod||'Zelle',{type:'select',options:TAX_METHODS.map(function(m){return [m,m];})})+
+      field('TAX amount ($)','taxAmount',dr.taxAmount,{type:'number',step:'0.01',min:0,inputmode:'decimal',hint:'Taken out of the driver\'s payment.'})+
+    '</div>'+
     field('Note on this invoice','note',dr.note,{type:'textarea',full:true,hint:'Shown above the payment note.'})+
     '<div class="full invprev"><span>Invoice total</span><b id="invPrev">'+money(draftTotal(dr))+'</b></div>'+
+    '<div class="full invprev" id="netPrevRow"'+(Number(dr.taxAmount)>0?'':' hidden')+'><span>Driver paid (after TAX)</span><b id="netPrev">'+money(r2(draftTotal(dr)-(Number(dr.taxAmount)||0)))+'</b></div>'+
     '<div class="formfoot"><button class="btn danger" type="button" data-action="delete-invoice" data-id="'+esc(dr.id)+'">Delete invoice</button><button class="btn" type="button" data-action="cancel-edit-invoice" data-id="'+esc(dr.id)+'">Cancel</button><button class="btn primary" type="submit">Save invoice</button></div></form>',true);
 }
 function invPreview(f){
   var t=0;Array.prototype.forEach.call(f.querySelectorAll('input.amt'),function(i){t+=Number(i.value)||0;});
   var a=f.querySelector('[name=adjAmount]');t+=a?(Number(a.value)||0):0;
   var el=$('invPrev');if(el)el.textContent=money(r2(t));
+  var ty=f.querySelector('[name=extraType]');
+  if(ty){var ab=$('adjBox'),tb=$('taxBox');if(ab)ab.style.display=ty.value==='tax'?'none':'contents';if(tb)tb.style.display=ty.value==='tax'?'contents':'none';}
+  var tx=f.querySelector('[name=taxAmount]'),tv=tx?Number(tx.value)||0:0,nr=$('netPrevRow'),np=$('netPrev');
+  if(nr)nr.hidden=!(tv>0);if(np)np.textContent=money(r2(t-tv));
 }
 
 
@@ -7304,7 +7333,10 @@ var forms={
     inv.no=no;inv.driverId=dr.driverId;inv.issued=dr.issued;inv.due=dr.due;inv.terms=daysBetween(dr.issued,dr.due);
     inv.loadIds=ids;inv.fees=fees;inv.status=paid?'Paid':'Sent';inv.paidOn=paid?(dr.paidOn||TODAY):'';
      ids.forEach(function(id){var l=getLoad(id);if(l)l.paidOn=inv.paidOn||'';});
+    var taxAmt=String(dr.taxAmount||'').trim()===''?0:Number(dr.taxAmount);
+    if(!(taxAmt>=0)){toast('The TAX amount cannot be negative.');return;}
     inv.adj=Number(dr.adjAmount)?{label:(dr.adjLabel||'').trim()||'Adjustment',amount:r2(Number(dr.adjAmount))}:null;
+    inv.tax=taxAmt>0?{method:TAX_METHODS.indexOf(dr.taxMethod)>-1?dr.taxMethod:'Others',amount:r2(taxAmt)}:null;
     inv.countOn=dr.countOn&&dr.countOn!==dr.issued?dr.countOn:'';
     inv.note=dr.note.trim();inv.total=invTotal(inv);syncNetFees();
     persist();render();viewInvoice(inv.id);toast('Invoice saved');
