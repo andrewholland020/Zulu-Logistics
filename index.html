@@ -280,6 +280,7 @@ h2{font-size:1.2rem;line-height:1.3}
 .stat{padding:14px 16px;display:grid;gap:2px;border-left:1px solid var(--line);min-width:0}
 .stat:first-child{border-left:0}
 .stats.five{grid-template-columns:repeat(5,minmax(0,1fr))}
+.stats.six{grid-template-columns:repeat(6,minmax(0,1fr))}
 .stats.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 tr.rowlink{cursor:pointer}
 .ld{display:grid;gap:14px}
@@ -382,6 +383,7 @@ mark.mfill{background:transparent;color:inherit;border-bottom:2px dotted var(--a
 .ldgrid div b{display:block;font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:3px}
 .ldsec{margin:14px 0 6px;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
 .p-noresp{background:#efe4f7;color:#6a2c91}
+.p-onoff{background:#e2f1f4;color:#0f5f6e}
 .stat .k{font-size:.74rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .stat .v{font-family:var(--font-display);font-size:1.7rem;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .stat .d{font-size:.84rem;color:var(--muted)}
@@ -559,8 +561,8 @@ tr.quiet td{color:var(--muted)}
 tr.total td{font-weight:700;border-top:2px solid var(--ink);background:var(--surface2)}
 
 @media (max-width:900px){
-  .stats,.stats.five{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .stats.five .stat:nth-child(5){border-left:0}
+  .stats,.stats.five,.stats.six{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stats.five .stat:nth-child(5),.stats.six .stat:nth-child(5){border-left:0}
   .stat:nth-child(3){border-left:0}
   .stat:nth-child(n+3){border-top:1px solid var(--line)}
   .cols{grid-template-columns:minmax(0,1fr)}
@@ -879,7 +881,7 @@ body.pdfcap .doc table{min-width:0!important;width:100%}
   .tablewrap table.cards{border-spacing:0}
   table.cards tbody tr,table.cards tfoot tr{border:1px solid var(--line)!important;border-radius:10px;margin-bottom:10px;background:var(--surface)}
   table.cards tbody tr:last-child{border-bottom:1px solid var(--line)!important}
-  .stats,.stats.five{gap:10px}
+  .stats,.stats.five,.stats.six{gap:10px}
 }
 
 
@@ -1434,11 +1436,12 @@ async function startSession(){
    Status rules (enforced by the database, migration 2026-10h):
    In Loop = no completed load yet · Active = first load completed (dispatcher can mark)
    Not Responding = driver is not answering the dispatcher (dispatcher can mark and undo; migration 2026-10l)
+   On & Off = driver takes a load only now and then (dispatcher can mark; the sales agent, admin and accountant are notified; migration 2026-11r)
    Dead = no longer working with us (admin / accountant only). Dead drivers stay in the
    sales agent's portal and all records and documents are kept. */
 var TRUCK_TYPES=['Dry Van','Reefer','Flatbed','Step Deck','Conestoga','Power Only','Box Truck','Hotshot','Car Hauler','Tanker','Lowboy / RGN','Other'];
 var ACCESSORIES=['Straps','Tarps','Chains & binders','Load locks / bars','Pallet jack','Liftgate','Blankets','Ramps','Hazmat endorsement','TWIC card'];
-var DSTATUS=['Active','In Loop','Not Responding','Dead'];
+var DSTATUS=['Active','In Loop','On & Off','Not Responding','Dead'];
 function doneLoads(d){return db.loads.filter(function(l){return l.driverId===d.id&&['Delivered','Invoiced','Paid'].indexOf(l.status)>-1;});}
 function drvStatus(d){return d.driverStatus&&DSTATUS.indexOf(d.driverStatus)>-1?d.driverStatus:(doneLoads(d).length?'Active':'In Loop');}
 function isDead(d){return drvStatus(d)==='Dead';}
@@ -1446,7 +1449,7 @@ function deadMsg(d){var a=d&&d.salesAgentId?getEmp(d.salesAgentId):null;return (
 /* the day a driver first became Active (activeAt); shown to the dispatcher, the driver's sales agent, the admin and the accountant */
 function activeDay(d){return d&&d.activeAt?dayOf(d.activeAt):'';}
 function activeNote(d){var a=activeDay(d);return a?'<div class="muted small">Active since '+fmtD(a)+'</div>':'';}
-function stPill(st){return '<span class="pill '+({Active:'p-paid','In Loop':'p-transit','Not Responding':'p-noresp',Dead:'p-overdue'}[st]||'p-booked')+'">'+esc(st)+'</span>';}
+function stPill(st){return '<span class="pill '+({Active:'p-paid','In Loop':'p-transit','Not Responding':'p-noresp','On & Off':'p-onoff',Dead:'p-overdue'}[st]||'p-booked')+'">'+esc(st)+'</span>';}
 function awaitingDisp(d){return !d.dispatcherId&&!isDead(d);}
 function drvInvStats(d){
   var o={paid:0,paidAmt:0,pend:0,pendAmt:0,over:0,overAmt:0};
@@ -1463,19 +1466,20 @@ function accList(d){return (Array.isArray(d.accessories)?d.accessories:[]).conca
 function mySalesDrivers(){return db.drivers.filter(function(d){return d.salesAgentId===session.empId;});}
 function pSalesHome(){
   var me=getEmp(session.empId),list=mySalesDrivers();
-  var c={Active:0,'In Loop':0,'Not Responding':0,Dead:0};list.forEach(function(d){c[drvStatus(d)]++;});
+  var c={Active:0,'In Loop':0,'On & Off':0,'Not Responding':0,Dead:0};list.forEach(function(d){c[drvStatus(d)]++;});
   var waiting=list.filter(awaitingDisp).length;
   var tab=ui.salesTab&&ui.salesTab!=='Dead'?ui.salesTab:'All';
   var rows=list.filter(function(d){return !isDead(d)&&(tab==='All'||drvStatus(d)===tab);}).sort(function(a,b){return String(b.addedAt||'').localeCompare(String(a.addedAt||''))||String(a.name).localeCompare(String(b.name));});
   return head('My drivers',(me?me.name+' · ':'')+'Drivers you brought in, and how they are doing','<button class="btn primary" type="button" data-action="sales-new-driver">Add driver</button>')+
-  '<div class="stats five">'+
+  '<div class="stats six">'+
     statTile('Active drivers',String(c.Active),'completed their first load')+
     statTile('In-Loop drivers',String(c['In Loop']),waiting?plural(waiting,'driver')+' waiting for a dispatcher':'no completed load yet')+
+    statTile('On & Off',String(c['On & Off']),'take a load only now and then')+
     statTile('Not responding',String(c['Not Responding']),'not answering their dispatcher')+
     statTile('Dead sales',String(c.Dead),c.Dead?'moved back to your Follow-ups':'no longer working with us')+
     statTile('Total drivers',String(list.length),'brought in by you')+
   '</div>'+
-  '<section class="panel"><div class="toolbar"><div class="chips">'+['All','Active','In Loop','Not Responding'].map(function(t){return '<button class="chip" type="button" data-action="sales-tab" data-p="'+t+'" aria-pressed="'+(tab===t)+'">'+t+' ('+(t==='All'?list.length-c.Dead:c[t])+')</button>';}).join('')+'</div></div>'+
+  '<section class="panel"><div class="toolbar"><div class="chips">'+['All','Active','In Loop','On & Off','Not Responding'].map(function(t){return '<button class="chip" type="button" data-action="sales-tab" data-p="'+t+'" aria-pressed="'+(tab===t)+'">'+t+' ('+(t==='All'?list.length-c.Dead:c[t])+')</button>';}).join('')+'</div></div>'+
   (rows.length?'<div class="tablewrap"><table style="min-width:1060px"><thead><tr><th>Driver</th><th>Truck</th><th>Dispatcher</th><th>Status</th><th class="num">Loads done</th><th class="num">Paid invoices</th><th class="num">Pending</th><th class="num">Overdue</th><th>Added</th><th></th></tr></thead><tbody>'+
     rows.map(function(d){var s=drvInvStats(d),st=drvStatus(d);
       return '<tr class="rowlink'+(st==='Dead'?' quiet':'')+'" data-action="driver-row" data-id="'+d.id+'" title="Click for full driver details"><td><div class="stack"><b>'+esc(d.name)+'</b><span class="muted small">'+esc(d.carrier||'')+(d.mc?' · '+esc(d.mc):'')+'</span></div></td>'+
@@ -1488,7 +1492,7 @@ function pSalesHome(){
         '<td class="small">'+(d.addedAt?fmtD(dayOf(d.addedAt)):'—')+'</td>'+
         '<td><div class="rowact"><button class="btn sm" type="button" data-action="driver-info" data-id="'+d.id+'">Details</button>'+chatBtn(d.id)+docsBtn(d.id)+(st==='Dead'?'':'<button class="btn sm" type="button" data-action="sales-edit-driver" data-id="'+d.id+'">Edit</button>')+'</div></td></tr>';}).join('')+
     '</tbody></table></div>':'<div class="empty">'+(list.length?'No drivers in this group.':'No drivers yet. Click Add driver to add your first one.')+'</div>')+'</section>'+
-  '<p class="muted small" style="margin:0">A new driver stays In Loop until their first load is completed; then their dispatcher marks them Active. If a driver stops answering, their dispatcher can mark them Not responding. Only the admin or accountant can mark a driver Dead. Dead drivers stay here with all their records.</p>';
+  '<p class="muted small" style="margin:0">A new driver stays In Loop until their first load is completed; then their dispatcher marks them Active. If a driver stops answering, their dispatcher can mark them Not responding. If a driver takes a load only now and then, their dispatcher can mark them On & Off, and you get a notification. Only the admin or accountant can mark a driver Dead. Dead drivers stay here with all their records.</p>';
 }
 
 /* driver details (sales agent, dispatcher, admin) */
@@ -1551,6 +1555,7 @@ function driverInfo(id){
       '<button class="btn sm'+(st==='Active'?' primary':'')+'" type="button" data-action="drv-status" data-id="'+d.id+'" data-st="Active"'+(done.length?'':' disabled title="Available after the first completed load"')+'>Mark Active</button>'+
       '<button class="btn sm'+(st==='In Loop'?' primary':'')+'" type="button" data-action="drv-status" data-id="'+d.id+'" data-st="In Loop">Mark In Loop</button>'+
       '<button class="btn sm'+(st==='Not Responding'?' primary':'')+'" type="button" data-action="drv-status" data-id="'+d.id+'" data-st="Not Responding">Mark Not Responding</button>'+
+      '<button class="btn sm'+(st==='On & Off'?' primary':'')+'" type="button" data-action="drv-status" data-id="'+d.id+'" data-st="On & Off" title="The driver takes a load only now and then. The sales agent, admin and accountant are told.">Mark On &amp; Off</button>'+
       (done.length?'':'<span class="small muted">Active becomes available after the first completed load.</span>')+'</div></div>':'')+
     (d.notes?'<div class="ld-card"><h3>Notes</h3><p style="white-space:pre-wrap;margin:0">'+esc(d.notes)+'</p></div>':'')+
     '<div class="ld-card"><h3>Invoices <span class="muted small" style="font-weight:400;text-transform:none;letter-spacing:0">· '+plural(inv.length,'invoice')+'</span></h3>'+
@@ -1664,7 +1669,7 @@ function srRange(){
 function salesStats(agentId,r){
   /* the admin and accountant see only Active and In Loop drivers here (not Not Responding or Dead) */
   var drv=db.drivers.filter(function(d){var st=drvStatus(d);return d.salesAgentId===agentId&&(st==='Active'||st==='In Loop');}),ids={};drv.forEach(function(d){ids[d.id]=1;});
-  var o={total:drv.length,added:0,Active:0,'In Loop':0,'Not Responding':0,Dead:0,activated:0,died:0,loads:0,fees:0,drivers:drv};
+  var o={total:drv.length,added:0,Active:0,'In Loop':0,'On & Off':0,'Not Responding':0,Dead:0,activated:0,died:0,loads:0,fees:0,drivers:drv};
   var inR=function(iso){var x=dayOf(iso);return x&&x>=r.start&&x<=r.end;};
   drv.forEach(function(d){o[drvStatus(d)]++;if(inR(d.addedAt))o.added++;if(inR(d.activeAt))o.activated++;if(drvStatus(d)==='Dead'&&inR(d.deadAt))o.died++;});
   db.loads.forEach(function(l){if(ids[l.driverId]&&['Delivered','Invoiced','Paid'].indexOf(l.status)>-1&&loadDay(l)>=r.start&&loadDay(l)<=r.end){o.loads++;o.fees+=loadFee(l);}});
@@ -1673,7 +1678,7 @@ function salesStats(agentId,r){
 function pSalesReports(){
   var r=srRange(),agents=staff('Sales agent'),sel=ui.srAgent||'';
   var shown=agents.filter(function(a){return !sel||a.id===sel;});
-  var T={total:0,added:0,Active:0,'In Loop':0,'Not Responding':0,Dead:0,activated:0,died:0,loads:0,fees:0};
+  var T={total:0,added:0,Active:0,'In Loop':0,'On & Off':0,'Not Responding':0,Dead:0,activated:0,died:0,loads:0,fees:0};
   var rows=shown.map(function(a){var s=salesStats(a.id,r);Object.keys(T).forEach(function(k){T[k]+=s[k];});
     return '<tr class="rowlink" data-action="sales-row" data-id="'+a.id+'" title="Click for sales agent details"><td><b>'+esc(a.name)+'</b></td><td class="num">'+s.total+'</td><td class="num"><b>'+s.added+'</b></td><td class="num">'+s.Active+'</td><td class="num">'+s['In Loop']+'</td><td class="num">'+s.activated+'</td><td class="num">'+s.loads+'</td><td class="num">'+money(s.fees)+'</td>'+
       '<td><div class="rowact"><button class="btn sm'+(sel===a.id?' primary':'')+'" type="button" data-action="sr-agent" data-id="'+a.id+'">'+(sel===a.id?'Showing':'View drivers')+'</button></div></td></tr>';}).join('');
@@ -2948,7 +2953,7 @@ document.addEventListener('change',function(e){
 
 /* ---------- notifications ---------- */
 var notes=[],notesOk=false,notesErr='',notesT=null,lastOverdueRun=0,notesSoonT=null;
-var NOTE_KIND={invoice_paid:'Invoice paid',invoice_overdue:'Invoice overdue',load_overdue:'Delivery overdue',payroll_issued:'Payroll',doc_expiring:'Document expiring',doc_expired:'Document expired',driver_added:'New driver from sales',driver_assigned:'Driver assigned to you',driver_dead:'Driver marked Dead',pay_deduction:'My salary',sales_daily:'Sales daily report'};
+var NOTE_KIND={invoice_paid:'Invoice paid',invoice_overdue:'Invoice overdue',load_overdue:'Delivery overdue',payroll_issued:'Payroll',doc_expiring:'Document expiring',doc_expired:'Document expired',driver_added:'New driver from sales',driver_assigned:'Driver assigned to you',driver_dead:'Driver marked Dead',driver_onoff:'Driver On & Off',pay_deduction:'My salary',sales_daily:'Sales daily report'};
 /* desktop (system) notifications: Windows / macOS pop-ups while the portal is open in any tab, even minimized */
 var DESK_KEY='zulu-desktop-notes';
 function deskSupported(){return typeof window.Notification==='function';}
@@ -3089,7 +3094,7 @@ async function markNotes(ids){
   var b=document.querySelector('[data-action="note-read-all"]');if(b)b.disabled=!unreadCount();
 }
 /* admin: notification health (Settings) */
-var NOTE_EVENT={invoice_paid:'Invoice paid',invoice_overdue:'Invoice overdue',load_overdue:'Load overdue',payroll_issued:'Payroll issued',doc_expiring:'Document expiring',doc_expired:'Document expired',driver_added:'New driver from sales',driver_assigned:'Driver assigned',sales_daily:'Sales daily report',error:'Error'};
+var NOTE_EVENT={invoice_paid:'Invoice paid',invoice_overdue:'Invoice overdue',load_overdue:'Load overdue',payroll_issued:'Payroll issued',doc_expiring:'Document expiring',doc_expired:'Document expired',driver_added:'New driver from sales',driver_assigned:'Driver assigned',driver_onoff:'Driver On & Off',sales_daily:'Sales daily report',error:'Error'};
 function healthList(arr,empty){return arr&&arr.length?arr.map(esc).join(', '):'<span class="muted">'+empty+'</span>';}
 async function loadHealth(){
   var el=$('healthBody');if(!el)return;
@@ -4757,7 +4762,7 @@ function pDrivers(){
   var docNote=docsOk&&(dExp||dSoon)?'<div class="panel small" style="border-left:4px solid '+(dExp?'var(--bad)':'#b26b00')+';padding:10px 14px"><b>Documents need attention:</b> '+[dExp?plural(dExp,'document')+' expired':'',dSoon?plural(dSoon,'document')+' expiring within 30 days':''].filter(Boolean).join(' · ')+'. Open a driver\'s Documents to see which.</div>':'';
   return head('Drivers','Owner-operators and carriers you dispatch for',edit?'<button class="btn primary" type="button" data-action="new-driver">Add driver</button>':'')+
   docNote+(waitN?'<div class="panel small" style="border-left:4px solid #b26b00;padding:10px 14px"><b>'+plural(waitN,'new driver')+' from sales '+(waitN===1?'needs':'need')+' a dispatcher.</b> Click Review on the driver, check the details and documents, and choose a dispatcher. <button class="linkbtn" type="button" data-action="drv-tab" data-p="Awaiting dispatcher">Show them</button></div>':'')+
-  '<section class="panel"><div class="toolbar"><div class="chips">'+['All','Awaiting dispatcher','Active','In Loop','Not Responding'].map(function(t){return '<button class="chip" type="button" data-action="drv-tab" data-p="'+t+'" aria-pressed="'+(dtab===t)+'">'+t+'</button>';}).join('')+'</div></div><div class="toolbar"><input id="drvSearch" class="searchbox" type="search" placeholder="Search drivers by name or MC" value="'+esc(ui.drvQ)+'" aria-label="Search drivers"><button class="btn sm" type="button" data-action="clear-drvq">Clear</button>'+
+  '<section class="panel"><div class="toolbar"><div class="chips">'+['All','Awaiting dispatcher','Active','In Loop','On & Off','Not Responding'].map(function(t){return '<button class="chip" type="button" data-action="drv-tab" data-p="'+t+'" aria-pressed="'+(dtab===t)+'">'+t+'</button>';}).join('')+'</div></div><div class="toolbar"><input id="drvSearch" class="searchbox" type="search" placeholder="Search drivers by name or MC" value="'+esc(ui.drvQ)+'" aria-label="Search drivers"><button class="btn sm" type="button" data-action="clear-drvq">Clear</button>'+
     '<label class="ovmonth" style="display:flex;align-items:center;gap:8px;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-left:auto">Month '+ymSelect('drvYm',dym,' aria-label="Dispatch month"','All months')+'</label></div>'+
     (dym?drvMonthSum(dym,dmr,dtab,dq):'')+
     (rows?'<div class="tablewrap"><table><thead><tr><th>Driver</th><th>MC and contact</th><th>Sales agent</th><th>Dispatcher</th><th>Status</th><th class="num">Dispatch fee</th><th class="num">'+(dym?'Loads (month)':'Loads')+'</th>'+(dym?'<th class="num">Earned (month)</th>':'')+'<th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty">'+(dym?'No driver had a load in '+esc(dmLabel(dym))+(ui.drvQ.trim()||dtab!=='All'?' that matches':'')+'.':ui.drvQ.trim()||dtab!=='All'?'No drivers match.':'No drivers yet. Add your first driver to start booking loads.')+'</div>')+'</section>';
@@ -4785,7 +4790,7 @@ function driverForm(d){
     ((session.role==='admin'||session.role==='accountant')&&teamsList().length?field('Dispatch team','teamId',d.teamId||'',{type:'select',options:[['','No team']].concat(teamsList().map(function(t){return [t.id,t.name];})),hint:'The team leader can then choose this driver\'s dispatcher from their team.'}):'')+
     field('Dispatcher','dispatcherId',d.dispatcherId||'',{type:'select',options:[['','None']].concat(staff('Dispatcher').map(function(e){return [e.id,e.name];})),hint:staff('Dispatcher').length?'Books this driver\'s loads and earns commission on them.':'No dispatchers yet. Add one on the Team page, then choose them here.'})+
     (d.id&&d.addedByRole==='sales'?'<p class="small full" style="margin:0;padding:8px 10px;background:var(--neutral-soft);color:inherit;border-radius:6px">Added by <b>'+esc(nm(getEmp(d.salesAgentId)))+'</b>'+(d.addedAt?' on '+fmtD(dayOf(d.addedAt)):'')+'. Check the details and documents, then choose a dispatcher. The dispatcher is notified and gets access to everything the sales agent submitted.</p>':'')+
-    field('Status','driverStatus',d.id?drvStatus(d):'In Loop',{type:'select',options:DSTATUS,hint:'Active needs a completed load. Not Responding: the driver is not answering. Dead removes the driver from dispatchers\' lists but keeps every record.'})+
+    field('Status','driverStatus',d.id?drvStatus(d):'In Loop',{type:'select',options:DSTATUS,hint:'Active needs a completed load. On & Off: the driver takes a load only now and then. Not Responding: the driver is not answering. Dead removes the driver from dispatchers\' lists but keeps every record.'})+
     ((session.role==='admin'||session.role==='accountant')&&d.id?field('Active date','activeDay',activeDay(d),{type:'date',hint:'The day this driver became Active. Filled in by itself when the driver is marked Active; fill it in for drivers who were active before.'}):'')+
     field('Truck type','truckType',d.truckType||'',{type:'select',options:[['','—']].concat(TRUCK_TYPES)})+
     field('Truck length (ft)','truckLen',d.truckLen||'',{type:'number',min:1,max:100,step:'1',required:!d.id,hint:d.id?'':'Required for a new driver.'})+
@@ -6111,7 +6116,7 @@ function salesDetail(id){
   var drv=s.drivers.slice().sort(function(x,y){return DSTATUS.indexOf(drvStatus(x))-DSTATUS.indexOf(drvStatus(y))||String(x.name).localeCompare(String(y.name));});
   var inR=function(iso){var x=dayOf(iso);return x&&x>=r.start&&x<=r.end;};
   var allMine=db.drivers.filter(function(d){return d.salesAgentId===id;});
-  var nr=allMine.filter(function(d){return drvStatus(d)==='Not Responding';}).length,dead=allMine.filter(function(d){return drvStatus(d)==='Dead';}).length;
+  var oo=allMine.filter(function(d){return drvStatus(d)==='On & Off';}).length,nr=allMine.filter(function(d){return drvStatus(d)==='Not Responding';}).length,dead=allMine.filter(function(d){return drvStatus(d)==='Dead';}).length;
   var rate=s.added?Math.round(100*drv.filter(function(d){return inR(d.addedAt)&&drvStatus(d)==='Active';}).length/s.added)+'%':'';
   openModal(sheetHead('Sales agent details')+
   '<div class="ld">'+
@@ -6129,7 +6134,7 @@ function salesDetail(id){
     '</div>'+
     '<div class="ld-cols">'+
       '<div class="ld-card"><h3>This period</h3>'+ldRow('Drivers added',String(s.added))+ldRow('Added and now Active',rate)+ldRow('Became active',String(s.activated))+'</div>'+
-      '<div class="ld-card"><h3>All drivers today</h3>'+ldRow('Active',String(s.Active))+ldRow('In Loop',String(s['In Loop']))+ldRow('Not responding',String(nr))+ldRow('Dead',String(dead))+'</div>'+
+      '<div class="ld-card"><h3>All drivers today</h3>'+ldRow('Active',String(s.Active))+ldRow('In Loop',String(s['In Loop']))+ldRow('On & Off',String(oo))+ldRow('Not responding',String(nr))+ldRow('Dead',String(dead))+'</div>'+
     '</div>'+
     '<div class="ld-card"><h3>Active and In-Loop drivers <span class="muted small" style="font-weight:400;text-transform:none;letter-spacing:0">· '+plural(drv.length,'driver')+'</span></h3>'+
       (drv.length?'<div class="tablewrap"><table style="min-width:600px"><thead><tr><th>Driver</th><th>Status</th><th>Dispatcher</th><th>Added</th></tr></thead><tbody>'+
@@ -6518,7 +6523,7 @@ function empDetail(id){
   var pct=e.commissionPct==null||e.commissionPct===''||isNaN(Number(e.commissionPct))?'<span class="pill p-overdue">Not set</span>':Number(e.commissionPct)+'%';
   var kp=disp?
     ldKpi('Loads this month',String(lm.length),esc(ymLabel(ym)))+ldKpi('Dispatch fees',money(r2(sumBy(lm.filter(isDone),loadFee))),'delivered loads this month')+ldKpi('Loads all time',String(loads.length),'dispatched')+ldKpi('Drivers',String(drv.length),cnt('Active')+' active')
-   :ldKpi('Drivers signed',String(drv.length),'all time')+ldKpi('Active',String(cnt('Active')),'today')+ldKpi('In Loop',String(cnt('In Loop')),'no completed load yet')+ldKpi('Not responding / Dead',String(cnt('Not Responding')+cnt('Dead')),'today');
+   :ldKpi('Drivers signed',String(drv.length),'all time')+ldKpi('Active',String(cnt('Active')),'today')+ldKpi('In Loop / On & Off',String(cnt('In Loop'))+' / '+String(cnt('On & Off')),'no load yet / now and then')+ldKpi('Not responding / Dead',String(cnt('Not Responding')+cnt('Dead')),'today');
   openModal(sheetHead('Employee details')+
   '<div class="ld">'+
     '<div class="ld-hero">'+
@@ -7493,6 +7498,7 @@ var forms={
       if(want==='Active'&&!(cur&&cur.activeAt))rec.activeAt=now;
       if(want==='Dead')rec.deadAt=now;
       if(want==='Not Responding')rec.noRespAt=now;else if(cur)delete cur.noRespAt;
+      if(want==='On & Off')rec.onOffAt=now;else if(cur)delete cur.onOffAt;
     }
     if(d.activeDay!==undefined&&(session.role==='admin'||session.role==='accountant')){
       var ad=String(d.activeDay||'').trim();
